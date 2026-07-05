@@ -67,4 +67,4 @@ lib/
 
 ---
 
-개발 진행 규칙(코딩/검증 절차)은 [`CLAUDE.md`](./CLAUDE.md), 세션별 작업 이력은 [`PROJECT_LOG.md`](./PROJECT_LOG.md) 참고.
+개발 환경 설정은 [`SETUP.md`](./SETUP.md), 개발 진행 규칙(코딩/검증 절차)은 [`CLAUDE.md`](./CLAUDE.md), 세션별 작업 이력은 [`PROJECT_LOG.md`](./PROJECT_LOG.md) 참고.
