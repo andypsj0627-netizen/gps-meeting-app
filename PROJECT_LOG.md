@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-07-06
+
+### 완료
+- 폴더 구조 보완: `lib/features/{auth,chat,profile}`, `lib/shared` 등 빈 모듈 폴더 생성 (`.gitkeep`)
+- Firebase 패키지 추가 (Phase 2 대비): firebase_core 4.11.0, firebase_auth 6.5.4, cloud_firestore 6.6.0, firebase_storage 13.4.3
+- 맥 로컬 Flutter SDK 업그레이드: 3.13.1 → 3.44.4 (Dart 3.12.2)
+  - 로컬 stable 브랜치가 원격과 갈라져 있어 `flutter upgrade` 실패 → `git reset --hard origin/stable`로 해결
+- flutter_lints 6.0.0으로 업그레이드
+- 7/5 세션(윈도우 환경)의 지도 기능 작업과 병합, `flutter analyze` / `flutter test` 통과 확인
+
+### 다음 세션에서 할 일
+- Phase 2: Firebase 프로젝트 연동 논의 (콘솔에서 프로젝트 생성 → flutterfire configure)
+
+---
+
 ## 2026-07-05 (2차 세션)
 
 ### 완료
