@@ -66,7 +66,7 @@ void main() {
   }
 
   group('FakeNearbyUsersService', () {
-    test('첫 방출은 A/B/C 3명이며 모두 center 100~300m 반경에 있다', () {
+    test('첫 방출은 A~J 10명이며 모두 center 100~300m 반경에 있다', () {
       fakeAsync((async) {
         final service = FakeNearbyUsersService(
           random: Random(42),
@@ -78,8 +78,11 @@ void main() {
 
         expect(emissions, isNotEmpty);
         final first = emissions.first;
-        expect(first.length, 3);
-        expect(first.map((u) => u.name).toList(), ['A', 'B', 'C']);
+        expect(first.length, 10);
+        expect(
+          first.map((u) => u.name).toList(),
+          ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'],
+        );
         for (final user in first) {
           final d = distance.distance(center, user.position);
           expect(d, greaterThanOrEqualTo(100 - 0.5));
@@ -167,18 +170,18 @@ void main() {
 
         final sub = service.watchNearbyUsers(center).listen((_) {});
 
-        // 구독 직후: 3명 각각 최초 경로 요청.
+        // 구독 직후: 10명 각각 최초 경로 요청.
         async.flushMicrotasks();
-        expect(planner.callCount, 3);
+        expect(planner.callCount, 10);
 
         // 도착(3틱 ≈ 0.9s) 전까지는 새 요청이 없다.
         async.elapse(_tick * 3);
-        expect(planner.callCount, 3);
+        expect(planner.callCount, 10);
 
-        // 최대 대기(3s)까지 진행하면 전원(3명)이 새 경로를 요청했어야 한다.
+        // 최대 대기(3s)까지 진행하면 전원(10명)이 새 경로를 요청했어야 한다.
         // (그 사이 두 번째 도착/재요청 사이클이 시작됐을 수 있어 하한으로 검증.)
         async.elapse(const Duration(seconds: 3) + _tick);
-        expect(planner.callCount, greaterThanOrEqualTo(6));
+        expect(planner.callCount, greaterThanOrEqualTo(20));
 
         sub.cancel();
         async.flushMicrotasks();
@@ -202,16 +205,16 @@ void main() {
 
         final sub = service.watchNearbyUsers(center).listen((_) {});
         async.flushMicrotasks();
-        expect(planner.callCount, 3);
+        expect(planner.callCount, 10);
 
         // 최소 백오프(10s)가 끝나기 전(도착 0.9s + 10s = 10.9s)에는
         // 재요청이 없어야 한다 — 1~3초 대기였다면 이미 여러 번 재요청했을 시간.
         async.elapse(const Duration(seconds: 10));
-        expect(planner.callCount, 3);
+        expect(planner.callCount, 10);
 
         // 최대 백오프(20s)를 지나면 전원이 새 경로를 요청했어야 한다.
         async.elapse(const Duration(seconds: 12));
-        expect(planner.callCount, greaterThanOrEqualTo(6));
+        expect(planner.callCount, greaterThanOrEqualTo(20));
 
         sub.cancel();
         async.flushMicrotasks();

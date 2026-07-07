@@ -12,7 +12,11 @@
   - `RoutePlanner` 추상화 + `OsrmRoutePlanner` (실패 시 직선 폴백 + 10~20초 백오프)
 - 코드 리뷰(8앵글 병렬 + 검증)로 findings 10건 확정 → 전부 수정: autoDispose 수명주기, 유령 마커(unwrapPrevious), 마커 id 키잉/팔레트 순환, 목적지 최소 거리, 유휴 방출 억제, 죽은 코드 제거 등
 - 맥 Android 테스트 환경 구축: SDK 36 + 라이선스 수락 완료 (기기 연결만 하면 됨)
+- 테스트 편의 조정: 시뮬레이션 속도 배율 도입(`AppConstants.simulationSpeedMultiplier = 5.0`, 출시 전 1.0 예정), 가상 사용자 A~J 10명으로 확장
 - `flutter analyze` 이슈 0 / `flutter test` 23건 통과
+
+### 다음 기능 (설계 승인 대기)
+- 마커 만남(조우) 감지 + 알림: 15m 접근 시 이벤트, 40m 히스테리시스로 스팸 방지, 알림 UI(스낵바 vs 다이얼로그) 결정 대기
 
 ### 다음 세션에서 할 일
 - Android 실기기 연결 테스트 (USB 디버깅 켜고 연결만 하면 됨)

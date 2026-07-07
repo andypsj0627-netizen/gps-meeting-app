@@ -20,4 +20,10 @@ class AppConstants {
   /// OSRM 공개 데모 서버의 라우팅 엔드포인트 (foot 프로필).
   static const String osrmRouteBaseUrl =
       'https://router.project-osrm.org/route/v1/foot';
+
+  /// 가상 사용자 시뮬레이션 속도 배율.
+  ///
+  /// 1.0이 실제 보행 속도(1.1~1.5m/s). 테스트 단계에서는 움직임을 빠르게
+  /// 확인하기 위해 배율을 올려둔다. 출시 전 1.0으로 되돌릴 것.
+  static const double simulationSpeedMultiplier = 5.0;
 }

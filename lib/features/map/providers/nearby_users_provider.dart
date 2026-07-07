@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../models/nearby_user.dart';
 import '../services/route_planner.dart';
 import '../utils/position_latlng.dart';
@@ -97,7 +98,9 @@ class FakeNearbyUsersService implements NearbyUsersService {
   static const double _maxDestinationDistance = 300;
 
   /// 배치할 가상 사용자 이름 목록.
-  static const List<String> _names = ['A', 'B', 'C'];
+  static const List<String> _names = [
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', //
+  ];
 
   @override
   Stream<List<NearbyUser>> watchNearbyUsers(LatLng center) {
@@ -300,7 +303,12 @@ final nearbyUsersServiceProvider =
     Provider.autoDispose<NearbyUsersService>((ref) {
   final planner = OsrmRoutePlanner();
   ref.onDispose(planner.dispose);
-  return FakeNearbyUsersService(routePlanner: planner);
+  return FakeNearbyUsersService(
+    routePlanner: planner,
+    // 테스트 단계 가속: 실제 보행 속도에 배율을 곱한다 (출시 전 배율 1.0 예정).
+    minSpeed: 1.1 * AppConstants.simulationSpeedMultiplier,
+    maxSpeed: 1.5 * AppConstants.simulationSpeedMultiplier,
+  );
 });
 
 /// 근처 사용자 목록을 실시간으로 방출하는 스트림 provider.
