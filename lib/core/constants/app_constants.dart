@@ -16,4 +16,8 @@ class AppConstants {
   /// OpenStreetMap 타일 URL 템플릿.
   static const String osmTileUrl =
       'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+  /// OSRM 공개 데모 서버의 라우팅 엔드포인트 (foot 프로필).
+  static const String osrmRouteBaseUrl =
+      'https://router.project-osrm.org/route/v1/foot';
 }

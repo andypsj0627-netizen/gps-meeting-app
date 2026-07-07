@@ -5,20 +5,33 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
 import 'package:gps_meeting_app/features/map/providers/location_provider.dart';
+import 'package:gps_meeting_app/features/map/providers/nearby_users_provider.dart';
 import 'package:gps_meeting_app/features/map/screens/map_screen.dart';
+import 'package:latlong2/latlong.dart';
 
 import 'helpers/location_test_helpers.dart';
 
 /// 주어진 fake 서비스로 MapScreen 을 감싼 테스트 앱을 펌프한다.
+///
+/// [nearbyStream]을 주면 근처 사용자 서비스를 그 스트림으로 override한다.
+/// 지정하지 않으면, 실제 주기 타이머(pending timer)를 만들지 않도록 아무것도
+/// 방출하지 않는 스트림으로 override한다.
 Future<void> _pumpWithService(
   WidgetTester tester,
-  FakeLocationService service,
-) async {
+  FakeLocationService service, {
+  Stream<List<NearbyUser>>? nearbyStream,
+}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         locationServiceProvider.overrideWithValue(service),
+        nearbyUsersServiceProvider.overrideWithValue(
+          ControlledNearbyUsersService(
+            nearbyStream ?? const Stream<List<NearbyUser>>.empty(),
+          ),
+        ),
       ],
       child: MaterialApp(
         home: MapScreen(tileProvider: FakeTileProvider()),
@@ -162,5 +175,68 @@ void main() {
     expect(find.byType(FlutterMap), findsOneWidget);
     // 오류 뷰가 지도를 밀어내지 않는다.
     expect(find.byKey(const ValueKey('retry_button')), findsNothing);
+  });
+
+  testWidgets('가상 근처 사용자 A/B/C 마커를 표시하고 새 방출 시 위치를 갱신한다',
+      (tester) async {
+    // 실제 주기 타이머 대신 직접 제어하는 스트림으로 근처 사용자 방출을 재현한다.
+    // 단일 구독 컨트롤러는 리스너가 붙기 전 이벤트도 버퍼링하므로 유실이 없다.
+    final nearby = StreamController<List<NearbyUser>>();
+    addTearDown(nearby.close);
+
+    await _pumpWithService(
+      tester,
+      FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
+      nearbyStream: nearby.stream,
+    );
+    // 위치 수신 → 지도 표시 → nearbyUsersProvider가 근처 스트림을 구독한다.
+    await tester.pump();
+    await tester.pump();
+
+    final users = [
+      const NearbyUser(
+          id: 'fake_A', name: 'A', position: LatLng(37.5670, 126.9785)),
+      const NearbyUser(
+          id: 'fake_B', name: 'B', position: LatLng(37.5660, 126.9790)),
+      const NearbyUser(
+          id: 'fake_C', name: 'C', position: LatLng(37.5655, 126.9775)),
+    ];
+    nearby.add(users);
+    await tester.pump();
+    await tester.pump();
+
+    // 마커 key 는 사용자 id 기반이다.
+    expect(
+        find.byKey(const ValueKey('nearby_user_marker_fake_A')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('nearby_user_marker_fake_B')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('nearby_user_marker_fake_C')),
+        findsOneWidget);
+    // 이니셜이 마커에 렌더링된다.
+    expect(find.text('A'), findsOneWidget);
+    // 내 위치 마커는 그대로 유지된다.
+    expect(find.byKey(const ValueKey('my_location_marker')), findsOneWidget);
+
+    // 새 리스트 방출 시 A의 마커 위치가 갱신된다.
+    const movedA = LatLng(37.5699, 126.9788);
+    nearby.add([
+      const NearbyUser(id: 'fake_A', name: 'A', position: movedA),
+      users[1],
+      users[2],
+    ]);
+    await tester.pump();
+    await tester.pump();
+
+    // flutter_map 8.x의 Marker는 Widget이 아니므로, 근처 사용자 MarkerLayer를
+    // 찾아 그 안의 A 마커 좌표가 갱신되었는지 확인한다.
+    const keyA = ValueKey('nearby_user_marker_fake_A');
+    final nearbyLayer = tester
+        .widgetList<MarkerLayer>(find.byType(MarkerLayer))
+        .firstWhere((layer) => layer.markers.any((m) => m.key == keyA));
+    final markerA = nearbyLayer.markers.firstWhere((m) => m.key == keyA);
+    expect(markerA.point, movedA);
   });
 }

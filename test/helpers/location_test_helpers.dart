@@ -1,7 +1,10 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
 import 'package:gps_meeting_app/features/map/providers/location_provider.dart';
+import 'package:gps_meeting_app/features/map/providers/nearby_users_provider.dart';
+import 'package:latlong2/latlong.dart';
 
 /// 테스트용 위치 좌표를 만드는 헬퍼.
 Position fakePosition(double lat, double lng) => Position(
@@ -46,6 +49,19 @@ class FakeLocationService implements LocationService {
     openLocationSettingsCallCount++;
     return true;
   }
+}
+
+/// 주입한 스트림을 그대로 반환하는 fake 근처 사용자 서비스.
+///
+/// 실제 주기 타이머 대신 테스트가 직접 제어하는 [StreamController] 스트림을
+/// 주입하여, 위젯 테스트에서 pending timer 오류 없이 마커 갱신을 검증한다.
+class ControlledNearbyUsersService implements NearbyUsersService {
+  ControlledNearbyUsersService(this._stream);
+
+  final Stream<List<NearbyUser>> _stream;
+
+  @override
+  Stream<List<NearbyUser>> watchNearbyUsers(LatLng center) => _stream;
 }
 
 /// 네트워크 요청 없이 투명 이미지를 반환하는 테스트용 타일 프로바이더.

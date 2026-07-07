@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-07-07
+
+### 완료
+- 가상 근처 사용자 시뮬레이션 (A/B/C): `NearbyUsersService` 추상화(Phase 3에서 Firestore로 교체 예정) + `FakeNearbyUsersService`
+  - v1 랜덤 워크 → 사용자 피드백 반영해 v2로 개선: OSRM 도보 경로를 따라 걷는 상태머신(목적지 선정 → 경로 요청 → 보행 1.1~1.5m/s, 300ms 틱 보간 → 도착 후 대기)
+  - `RoutePlanner` 추상화 + `OsrmRoutePlanner` (실패 시 직선 폴백 + 10~20초 백오프)
+- 코드 리뷰(8앵글 병렬 + 검증)로 findings 10건 확정 → 전부 수정: autoDispose 수명주기, 유령 마커(unwrapPrevious), 마커 id 키잉/팔레트 순환, 목적지 최소 거리, 유휴 방출 억제, 죽은 코드 제거 등
+- 맥 Android 테스트 환경 구축: SDK 36 + 라이선스 수락 완료 (기기 연결만 하면 됨)
+- `flutter analyze` 이슈 0 / `flutter test` 23건 통과
+
+### 다음 세션에서 할 일
+- Android 실기기 연결 테스트 (USB 디버깅 켜고 연결만 하면 됨)
+- 아이폰 테스트는 App Store에서 Xcode 업데이트 후 가능 (이 맥의 Xcode 14.3.1이 손상 상태)
+- Phase 2: Firebase 프로젝트 연동 논의
+
+---
+
 ## 2026-07-06
 
 ### 완료

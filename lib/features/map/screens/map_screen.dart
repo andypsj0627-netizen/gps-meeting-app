@@ -5,7 +5,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../models/nearby_user.dart';
 import '../providers/location_provider.dart';
+import '../providers/nearby_users_provider.dart';
+import '../utils/position_latlng.dart';
 
 /// 화면이 표시할 상위 단계.
 ///
@@ -76,7 +79,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     setState(() => _following = true);
     if (position != null) {
       _mapController.move(
-        LatLng(position.latitude, position.longitude),
+        position.latLng,
         // initialZoom으로 리셋하지 않고 현재 줌을 유지한다.
         _mapController.camera.zoom,
       );
@@ -103,7 +106,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       if (previous?.value == null) return;
       if (!mounted || !_following) return;
       _mapController.move(
-        LatLng(position.latitude, position.longitude),
+        position.latLng,
         // 현재 줌을 유지하여 5m마다 줌이 리셋되지 않게 한다.
         _mapController.camera.zoom,
       );
@@ -141,8 +144,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// 지도 진입 시점의 첫 위치(초기 중심). data phase에서만 호출되므로 non-null.
   LatLng _initialCenter() {
-    final position = ref.read(positionStreamProvider).value!;
-    return LatLng(position.latitude, position.longitude);
+    return ref.read(positionStreamProvider).value!.latLng;
   }
 }
 
@@ -266,6 +268,7 @@ class _MapView extends StatelessWidget {
           // null이면 flutter_map이 기본 네트워크 프로바이더를 사용한다.
           tileProvider: tileProvider,
         ),
+        const _NearbyUsersLayer(),
         const _MarkerLayer(),
       ],
     );
@@ -281,7 +284,7 @@ class _MarkerLayer extends ConsumerWidget {
     final position =
         ref.watch(positionStreamProvider.select((state) => state.value));
     if (position == null) return const MarkerLayer(markers: []);
-    final latLng = LatLng(position.latitude, position.longitude);
+    final latLng = position.latLng;
     return MarkerLayer(
       markers: [
         Marker(
@@ -296,6 +299,68 @@ class _MarkerLayer extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 가상 근처 사용자(A/B/C) 마커만 구독/리빌드하는 소형 Consumer 레이어.
+///
+/// 로딩 중이거나 오류가 발생하면 빈 레이어를 반환하여, 내 위치 지도 표시를
+/// 방해하지 않는다(근처 사용자 시뮬레이션은 어디까지나 보조 정보다).
+/// [AsyncValue.unwrapPrevious]로 이전 데이터를 벗겨내므로, 오류 상태에서
+/// 낡은 목록의 유령 마커가 남지 않는다.
+class _NearbyUsersLayer extends ConsumerWidget {
+  const _NearbyUsersLayer();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final users = ref.watch(
+      nearbyUsersProvider.select((state) => state.unwrapPrevious().value),
+    );
+    if (users == null) return const MarkerLayer(markers: []);
+    return MarkerLayer(
+      markers: [
+        for (final user in users)
+          Marker(
+            key: ValueKey('nearby_user_marker_${user.id}'),
+            point: user.position,
+            width: 40,
+            height: 40,
+            child: _NearbyUserMarker(user: user),
+          ),
+      ],
+    );
+  }
+}
+
+/// 근처 사용자 한 명을 나타내는 이니셜 원형 마커.
+class _NearbyUserMarker extends StatelessWidget {
+  const _NearbyUserMarker({required this.user});
+
+  final NearbyUser user;
+
+  /// 마커 색상 팔레트. 사용자 id 해시로 골라 인원이 늘어도 안전하게 순환한다.
+  static const List<Color> _palette = [
+    Color(0xFFE53935), // red
+    Color(0xFF43A047), // green
+    Color(0xFF1E88E5), // blue
+    Color(0xFF8E24AA), // purple
+    Color(0xFFFB8C00), // orange
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    // Dart의 % 연산은 항상 음이 아닌 나머지를 반환하므로 hashCode 부호는 무관하다.
+    final color = _palette[user.id.hashCode % _palette.length];
+    return CircleAvatar(
+      backgroundColor: color,
+      child: Text(
+        user.name,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 }
