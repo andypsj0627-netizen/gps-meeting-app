@@ -2,50 +2,20 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
 import 'package:gps_meeting_app/features/map/providers/location_provider.dart';
-import 'package:gps_meeting_app/features/map/providers/nearby_users_provider.dart';
-import 'package:gps_meeting_app/features/map/screens/map_screen.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'helpers/location_test_helpers.dart';
-
-/// 주어진 fake 서비스로 MapScreen 을 감싼 테스트 앱을 펌프한다.
-///
-/// [nearbyStream]을 주면 근처 사용자 서비스를 그 스트림으로 override한다.
-/// 지정하지 않으면, 실제 주기 타이머(pending timer)를 만들지 않도록 아무것도
-/// 방출하지 않는 스트림으로 override한다.
-Future<void> _pumpWithService(
-  WidgetTester tester,
-  FakeLocationService service, {
-  Stream<List<NearbyUser>>? nearbyStream,
-}) async {
-  await tester.pumpWidget(
-    ProviderScope(
-      overrides: [
-        locationServiceProvider.overrideWithValue(service),
-        nearbyUsersServiceProvider.overrideWithValue(
-          ControlledNearbyUsersService(
-            nearbyStream ?? const Stream<List<NearbyUser>>.empty(),
-          ),
-        ),
-      ],
-      child: MaterialApp(
-        home: MapScreen(tileProvider: FakeTileProvider()),
-      ),
-    ),
-  );
-}
 
 /// 주어진 스트림으로 MapScreen 을 감싼 테스트 앱을 펌프한다.
 Future<void> _pumpMapScreen(
   WidgetTester tester,
   Stream<Position> stream,
 ) async {
-  await _pumpWithService(tester, FakeLocationService(stream));
+  await pumpMapScreenWithService(tester, FakeLocationService(stream));
 }
 
 void main() {
@@ -112,7 +82,7 @@ void main() {
       ),
     );
 
-    await _pumpWithService(tester, service);
+    await pumpMapScreenWithService(tester, service);
     await tester.pump();
 
     final openSettings = find.byKey(const ValueKey('open_settings_button'));
@@ -131,7 +101,7 @@ void main() {
     addTearDown(controller.close);
     final service = FakeLocationService(controller.stream);
 
-    await _pumpWithService(tester, service);
+    await pumpMapScreenWithService(tester, service);
     await tester.pump();
 
     // 초기 구독 후 오류 방출 → 오류 뷰.
@@ -184,7 +154,7 @@ void main() {
     final nearby = StreamController<List<NearbyUser>>();
     addTearDown(nearby.close);
 
-    await _pumpWithService(
+    await pumpMapScreenWithService(
       tester,
       FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
       nearbyStream: nearby.stream,
@@ -245,7 +215,7 @@ void main() {
     final nearby = StreamController<List<NearbyUser>>();
     addTearDown(nearby.close);
 
-    await _pumpWithService(
+    await pumpMapScreenWithService(
       tester,
       FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
       nearbyStream: nearby.stream,
@@ -280,7 +250,7 @@ void main() {
     final nearby = StreamController<List<NearbyUser>>();
     addTearDown(nearby.close);
 
-    await _pumpWithService(
+    await pumpMapScreenWithService(
       tester,
       FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
       nearbyStream: nearby.stream,
@@ -310,7 +280,7 @@ void main() {
     final nearby = StreamController<List<NearbyUser>>();
     addTearDown(nearby.close);
 
-    await _pumpWithService(
+    await pumpMapScreenWithService(
       tester,
       FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
       nearbyStream: nearby.stream,
@@ -369,7 +339,7 @@ void main() {
     final nearby = StreamController<List<NearbyUser>>();
     addTearDown(nearby.close);
 
-    await _pumpWithService(
+    await pumpMapScreenWithService(
       tester,
       FakeLocationService(controller.stream),
       nearbyStream: nearby.stream,

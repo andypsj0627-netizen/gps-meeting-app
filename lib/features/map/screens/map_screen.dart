@@ -11,6 +11,7 @@ import '../providers/encounter_provider.dart';
 import '../providers/location_provider.dart';
 import '../providers/nearby_users_provider.dart';
 import '../utils/position_latlng.dart';
+import '../widgets/encounter_effects_layer.dart';
 
 /// 화면이 표시할 상위 단계.
 ///
@@ -326,6 +327,7 @@ class _MapView extends StatelessWidget {
           // null이면 flutter_map이 기본 네트워크 프로바이더를 사용한다.
           tileProvider: tileProvider,
         ),
+        const EncounterEffectsLayer(),
         const _NearbyUsersLayer(),
         const _MarkerLayer(),
       ],

@@ -1,9 +1,12 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
 import 'package:gps_meeting_app/features/map/providers/location_provider.dart';
 import 'package:gps_meeting_app/features/map/providers/nearby_users_provider.dart';
+import 'package:gps_meeting_app/features/map/screens/map_screen.dart';
 import 'package:latlong2/latlong.dart';
 
 /// 서브미터 거리 비교/좌표 생성을 위해 미터 반올림을 끈 공용 거리 계산기.
@@ -38,6 +41,36 @@ Position fakePosition(double lat, double lng) => Position(
       speed: 0,
       speedAccuracy: 0,
     );
+
+/// 주어진 fake 서비스로 MapScreen 을 감싼 테스트 앱을 펌프한다.
+///
+/// map_screen_test.dart와 encounter_effects_layer_test.dart가 verbatim 동일한
+/// 사본을 각자 들고 있던 것을, 사본 동기화 부담을 없애려고 공용 헬퍼로 추출했다.
+///
+/// [nearbyStream]을 주면 근처 사용자 서비스를 그 스트림으로 override한다.
+/// 지정하지 않으면, 실제 주기 타이머(pending timer)를 만들지 않도록 아무것도
+/// 방출하지 않는 스트림으로 override한다.
+Future<void> pumpMapScreenWithService(
+  WidgetTester tester,
+  FakeLocationService service, {
+  Stream<List<NearbyUser>>? nearbyStream,
+}) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        locationServiceProvider.overrideWithValue(service),
+        nearbyUsersServiceProvider.overrideWithValue(
+          ControlledNearbyUsersService(
+            nearbyStream ?? const Stream<List<NearbyUser>>.empty(),
+          ),
+        ),
+      ],
+      child: MaterialApp(
+        home: MapScreen(tileProvider: FakeTileProvider()),
+      ),
+    ),
+  );
+}
 
 /// 주입한 스트림을 그대로 반환하는 fake 위치 서비스.
 ///
