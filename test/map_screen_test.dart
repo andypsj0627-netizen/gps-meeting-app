@@ -335,6 +335,32 @@ void main() {
     );
   });
 
+  testWidgets('첫 지도 렌더 전에 위치가 연속 방출되어도 예외 없이 지도를 표시한다',
+      (tester) async {
+    // 웹 회귀: 첫 프레임(로딩 뷰)에서 아직 FlutterMap이 마운트되지 않은 사이에
+    // 위치가 2건 연속 방출되면, follow 리스너가 두 번째 이벤트에서 미마운트
+    // 컨트롤러의 camera에 접근해 예외를 던졌다. Riverpod은 ref.listen 콜백의
+    // 예외를 uncaught error로 올려 위젯 테스트를 실패시키므로, 이 시나리오가
+    // 예외 없이 통과하는지로 회귀를 방지한다.
+    final controller = StreamController<Position>();
+    addTearDown(controller.close);
+
+    await _pumpMapScreen(tester, controller.stream); // 첫 프레임: 로딩 뷰
+
+    // 다음 프레임 전에 위치 2건이 연속 도착하는 웹 시나리오 재현.
+    controller.add(fakePosition(37.5665, 126.9780));
+    // 마이크로태스크를 flush해 두 방출이 같은 빌드 이전에 리스너로 전달되게 한다.
+    // (testWidgets의 FakeAsync에서는 Future.delayed가 완료되지 않으므로
+    // binding.delayed로 가짜 시계를 진행시킨다.)
+    await tester.binding.delayed(Duration.zero);
+    controller.add(fakePosition(37.5666, 126.9781));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(FlutterMap), findsOneWidget);
+    expect(find.byKey(const ValueKey('my_location_marker')), findsOneWidget);
+  });
+
   testWidgets('위치 오류 → 재시도 → 지도 복귀 후 사용자가 진입하면 조우 스낵바가 발생한다',
       (tester) async {
     // 재구독 가능한 broadcast 스트림으로 오류 → 재시도 → 위치 흐름을 재현한다.

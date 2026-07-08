@@ -104,26 +104,39 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 새 위치를 수신할 때마다 follow 모드일 때만 카메라를 이동시킨다.
-    // 첫 위치는 FlutterMap의 initialCenter가 처리하므로, 이전 데이터가 없던
-    // 첫 이벤트는 이동을 건너뛴다. flutter_map 8.x는 외부 컨트롤러의 카메라를
-    // initState에서 동기 초기화하므로 여기서 별도의 예외 방어는 필요 없다.
-    ref.listen<AsyncValue<Position>>(positionStreamProvider, (previous, next) {
-      final position = next.value;
-      if (position == null) return;
-      // 첫 위치(이전 데이터 없음)는 initialCenter가 처리한다.
-      if (previous?.value == null) return;
-      if (!mounted || !_following) return;
-      _mapController.move(
-        position.latLng,
-        // 현재 줌을 유지하여 5m마다 줌이 리셋되지 않게 한다.
-        _mapController.camera.zoom,
-      );
-    });
-
     // 위치 이벤트마다 전체가 리빌드되지 않도록, 부모는 상태 전이(phase)만 구독한다.
     // 실제 마커 좌표는 아래 _MarkerLayer가 별도로 구독해 마커만 리빌드된다.
     final phase = ref.watch(positionStreamProvider.select(_phaseOf));
+
+    // 새 위치를 수신할 때마다 follow 모드일 때만 카메라를 이동시킨다.
+    // 첫 위치는 FlutterMap의 initialCenter가 처리하므로, 이전 데이터가 없던
+    // 첫 이벤트는 이동을 건너뛴다.
+    //
+    // data phase(지도가 떠 있음)에서만 리스너를 등록한다. flutter_map 8.x는
+    // 외부 주입 컨트롤러의 camera를 FlutterMap.initState에서야 초기화하는데,
+    // 로딩 단계에서 위치가 연속으로 방출되면(웹에서 실제 발생) 아직 마운트되지
+    // 않은 컨트롤러의 camera에 접근해 예외가 난다.
+    //
+    // 이 리스너의 camera 접근이 안전한 근거는 두 가지다. (1) data phase 밖에서는
+    // 리스너 자체가 등록되지 않으므로, 지도가 마운트되기 전에는 발화할 수 없다.
+    // (2) 최초 attach(첫 data 빌드의 FlutterMap.initState) 이후로는 컨트롤러의
+    // camera가 다시 null로 돌아가지 않는다 — flutter_map은 dispose에서 camera를
+    // 리셋하지 않는다. 따라서 재진입(data→loading→data)으로 initState가 재실행되지
+    // 않아도, 한 번 attach된 camera는 계속 유효하다.
+    if (phase == _MapPhase.data) {
+      ref.listen<AsyncValue<Position>>(positionStreamProvider, (previous, next) {
+        final position = next.value;
+        if (position == null) return;
+        // 첫 위치(이전 데이터 없음)는 initialCenter가 처리한다.
+        if (previous?.value == null) return;
+        if (!mounted || !_following) return;
+        _mapController.move(
+          position.latLng,
+          // 현재 줌을 유지하여 5m마다 줌이 리셋되지 않게 한다.
+          _mapController.camera.zoom,
+        );
+      });
+    }
 
     // 조우 이벤트 배치가 방출될 때마다 스낵바로 알린다. 한 재계산에서 여러 쌍이
     // 동시에 진입하면 한 배치로 오므로 스낵바 1개에 만남을 모아 표시하고, 배치가
