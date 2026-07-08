@@ -6,6 +6,25 @@ import 'package:gps_meeting_app/features/map/providers/location_provider.dart';
 import 'package:gps_meeting_app/features/map/providers/nearby_users_provider.dart';
 import 'package:latlong2/latlong.dart';
 
+/// 서브미터 거리 비교/좌표 생성을 위해 미터 반올림을 끈 공용 거리 계산기.
+///
+/// FakeNearbyUsersService와 동일한 설정으로, 기준점에서 정확한 거리의 좌표를
+/// 만들거나 이동 거리를 검증할 때 쓴다.
+const testDistance = Distance(roundResult: false);
+
+/// [userAt]의 기본 중심점(서울시청 부근). 여러 테스트가 공유하는 기준점이다.
+final testCenter = LatLng(37.5665, 126.9780);
+
+/// [center]에서 정북(0도) 방향으로 [meters]만큼 떨어진 근처 사용자를 만든다.
+///
+/// id와 name을 동일하게 두어, 스낵바 등에서 이름으로 검증하기 쉽게 한다.
+/// [center]를 생략하면 [testCenter]를 기준으로 삼는다.
+NearbyUser userAt(String id, double meters, {LatLng? center}) => NearbyUser(
+      id: id,
+      name: id,
+      position: testDistance.offset(center ?? testCenter, meters, 0),
+    );
+
 /// 테스트용 위치 좌표를 만드는 헬퍼.
 Position fakePosition(double lat, double lng) => Position(
       latitude: lat,

@@ -239,4 +239,115 @@ void main() {
     final markerA = nearbyLayer.markers.firstWhere((m) => m.key == keyA);
     expect(markerA.point, movedA);
   });
+
+  testWidgets('근처 사용자가 조우 반경 이내로 들어오면 조우 스낵바를 표시한다',
+      (tester) async {
+    final nearby = StreamController<List<NearbyUser>>();
+    addTearDown(nearby.close);
+
+    await _pumpWithService(
+      tester,
+      FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
+      nearbyStream: nearby.stream,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // 처음엔 멀리(100m) 있어 조우가 아니다 → 스낵바 없음.
+    nearby.add([userAt('A', 100)]);
+    await tester.pump();
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('encounter_snackbar_text')),
+      findsNothing,
+    );
+
+    // 조우 진입 반경(15m) 이내로 이동 → 스낵바 표시.
+    nearby.add([userAt('A', 10)]);
+    await tester.pump();
+    await tester.pump();
+
+    final snackbarText = find.byKey(const ValueKey('encounter_snackbar_text'));
+    expect(snackbarText, findsOneWidget);
+    expect(
+      find.text('A님과 10m 거리에서 만났어요!'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('두 사용자가 같은 방출에서 동시에 조우하면 스낵바 1개에 두 이름을 표시한다',
+      (tester) async {
+    final nearby = StreamController<List<NearbyUser>>();
+    addTearDown(nearby.close);
+
+    await _pumpWithService(
+      tester,
+      FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
+      nearbyStream: nearby.stream,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // 같은 방출에 A(10m)·B(12m) 모두 진입 반경(15m) 이내로 배치한다.
+    nearby.add([userAt('A', 10), userAt('B', 12)]);
+    await tester.pump();
+    await tester.pump();
+
+    // 배치가 스낵바 1개로 모여 두 이름이 함께 표시된다.
+    expect(
+      find.byKey(const ValueKey('encounter_snackbar_text')),
+      findsOneWidget,
+    );
+    expect(
+      find.text('A, B님과 가까운 거리에서 만났어요!'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('위치 오류 → 재시도 → 지도 복귀 후 사용자가 진입하면 조우 스낵바가 발생한다',
+      (tester) async {
+    // 재구독 가능한 broadcast 스트림으로 오류 → 재시도 → 위치 흐름을 재현한다.
+    final controller = StreamController<Position>.broadcast();
+    addTearDown(controller.close);
+    final nearby = StreamController<List<NearbyUser>>();
+    addTearDown(nearby.close);
+
+    await _pumpWithService(
+      tester,
+      FakeLocationService(controller.stream),
+      nearbyStream: nearby.stream,
+    );
+    await tester.pump();
+
+    // 초기 구독 후 오류 방출 → 오류 뷰.
+    controller.addError(
+      const LocationException(LocationFailureKind.unknown, '일시 오류'),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('retry_button')), findsOneWidget);
+
+    // 재시도 → invalidate 후 로딩.
+    await tester.tap(find.byKey(const ValueKey('retry_button')));
+    await tester.pump();
+
+    // 스트림이 위치 방출 → 지도 복귀.
+    controller.add(fakePosition(37.5665, 126.9780));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(FlutterMap), findsOneWidget);
+
+    // 지도 복귀 후 사용자가 진입 반경(15m) 이내로 들어오면 조우 스낵바가 발생한다.
+    nearby.add([userAt('A', 10)]);
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('encounter_snackbar_text')),
+      findsOneWidget,
+    );
+    expect(
+      find.text('A님과 10m 거리에서 만났어요!'),
+      findsOneWidget,
+    );
+  });
 }

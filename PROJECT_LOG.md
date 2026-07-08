@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-07-08
+
+### 완료
+- 조우(만남) 감지 + 스낵바 알림 (7/7 설계 승인 대기 건): 근처 사용자가 15m 이내 진입 시 알림, 40m 이탈 후 재진입해야 재발생(히스테리시스)
+  - `EncounterDetector` 순수 로직(반경/시계 주입 가능) + `EncounterEvent` 모델 + `encounterEventsProvider`(재계산 1회당 이벤트를 배치 `List`로 방출)
+  - 스낵바 UI(사용자 선택): 1명이면 거리 포함, 동시 여러 명이면 이름을 합쳐 1개로 표시
+- 코드 리뷰(8앵글 병렬 → 후보 10건 검증 → 7건 확정) 후 6건 수정:
+  - 유령 조우 방지(내 위치도 `unwrapPrevious`로 대칭 보호), 동시 조우 스낵바 소실 해소(배치 방출), 죽은 간접층(`encounterDetectorProvider`) 제거, `EncounterEvent`의 미사용 `==`/`hashCode` 제거(double 정밀도 함정), 테스트 헬퍼 통합(`testDistance`/`userAt`), 테스트 공백 3건 보강(동시 조우 UI, 재시도 후 조우 재개, 배치 방출)
+- `flutter analyze` 이슈 0 / `flutter test` 38건 통과
+
+### 설계 부채 (Phase 3에서 해결)
+- 조우 체인의 생존/재시도 안전성이 MapScreen의 data-phase 가드에만 의존 (리뷰 확정, 수정 보류)
+  - `nearbyUsersProvider`가 `positionStreamProvider`를 read(watch 아님)+`retry: null`로 쓰므로, 미래에 다른 구독자(푸시 알림 등)가 조우 스트림을 무조건 listen하면 위치 오류 후 재시도해도 nearby가 AsyncError에 고착됨
+  - Firestore 지오쿼리로 교체할 때 provider 그래프 차원에서 재설계할 것 (예: 재시도 신호 provider를 watch)
+
+### 다음 세션에서 할 일
+- Android 실기기 연결 테스트 (USB 디버깅 켜고 연결만 하면 됨)
+- Phase 2: Firebase 프로젝트 연동 논의
+
+---
+
 ## 2026-07-07
 
 ### 완료

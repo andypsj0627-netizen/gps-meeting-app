@@ -7,6 +7,8 @@ import 'package:gps_meeting_app/features/map/providers/nearby_users_provider.dar
 import 'package:gps_meeting_app/features/map/services/route_planner.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'helpers/location_test_helpers.dart';
+
 /// 호출을 기록하고 주입한 빌더로 경로를 만드는 fake 플래너.
 ///
 /// 빌더가 없으면 직선 경로 [from, to]를 반환한다. 네트워크를 전혀 사용하지
@@ -44,9 +46,9 @@ const _tick = Duration(milliseconds: 300);
 const double _tickSeconds = 0.3;
 
 void main() {
-  // 서브미터 이동을 검증하므로 미터 반올림을 끈 거리 계산기를 사용한다.
-  const distance = Distance(roundResult: false);
-  final center = LatLng(37.5665, 126.9780);
+  // 서브미터 이동을 검증하므로 미터 반올림을 끈 공용 거리 계산기를 사용한다.
+  final distance = testDistance;
+  final center = testCenter;
 
   /// fake_async 안에서 서비스를 구독하고 [elapse]만큼 시간을 진행시킨 뒤,
   /// 그동안 수신한 스냅샷 목록을 반환한다.
