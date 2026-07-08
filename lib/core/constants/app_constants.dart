@@ -30,12 +30,17 @@ class AppConstants {
   /// 조우(만남) 진입 판정 반경(m).
   ///
   /// 근처 사용자가 내 위치 기준 이 거리 이내로 들어오면 조우 이벤트를 발생시킨다.
-  static const double encounterEnterRadius = 15.0;
+  ///
+  /// 테스트 단계에서는 가상 사용자가 우연히 지나가는 조우를 빨리 관찰하기 위해
+  /// 반경을 넓혀둔다. 출시 전 15.0으로 되돌릴 것.
+  static const double encounterEnterRadius = 60.0;
 
   /// 조우 해제 판정 반경(m).
   ///
   /// 조우 상태인 사용자가 이 거리 밖으로 나가야 상태를 해제한다. 진입 반경보다
   /// 넉넉하게 두어(히스테리시스), 경계선 부근에서 진입/이탈이 반복될 때 알림이
   /// 연쇄로 터지는 것을 막는다. 해제된 뒤 다시 진입하면 이벤트가 재발생한다.
-  static const double encounterExitRadius = 40.0;
+  ///
+  /// 진입 반경과 마찬가지로 테스트 단계 확대값. 출시 전 40.0으로 되돌릴 것.
+  static const double encounterExitRadius = 100.0;
 }

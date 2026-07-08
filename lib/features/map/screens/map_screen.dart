@@ -45,6 +45,13 @@ const Set<MapEventSource> _userGestureSources = {
   MapEventSource.keyboard,
 };
 
+/// 조우 이벤트 1건을 "나↔A" 또는 "A↔B" 꼴의 짧은 라벨로 만든다.
+///
+/// 여러 건이 한 배치로 왔을 때 스낵바 한 문장에 만남들을 이어 붙이기 위해 쓴다.
+String _encounterLabel(EncounterEvent event) => event.involvesMe
+    ? '나↔${event.partner.name}'
+    : '${event.a.name}↔${event.b.name}';
+
 /// 지도 화면.
 ///
 /// 내 위치를 실시간으로 추적하여 마커와 카메라를 위치 스트림에 맞춰 이동시킨다.
@@ -118,8 +125,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     // 실제 마커 좌표는 아래 _MarkerLayer가 별도로 구독해 마커만 리빌드된다.
     final phase = ref.watch(positionStreamProvider.select(_phaseOf));
 
-    // 조우 이벤트 배치가 방출될 때마다 스낵바로 알린다. 한 재계산에서 여러 명이
-    // 동시에 진입하면 한 배치로 오므로 스낵바 1개에 이름을 모아 표시하고, 배치가
+    // 조우 이벤트 배치가 방출될 때마다 스낵바로 알린다. 한 재계산에서 여러 쌍이
+    // 동시에 진입하면 한 배치로 오므로 스낵바 1개에 만남을 모아 표시하고, 배치가
     // 연달아 오면 이전 스낵바를 즉시 감춰 최신 조우가 항상 보이게 한다.
     //
     // data phase(내 위치 확보됨)에서만 구독한다. 조우 감지 체인은 근처 사용자
@@ -131,10 +138,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           (previous, next) {
         final events = next.value;
         if (events == null || events.isEmpty || !mounted) return;
-        // 1명은 정확한 거리까지, 여러 명은 이름만 이어 붙여 한 문장으로 만든다.
-        final message = events.length == 1
-            ? '${events.single.user.name}님과 ${events.single.distanceMeters.round()}m 거리에서 만났어요!'
-            : '${events.map((e) => e.user.name).join(', ')}님과 가까운 거리에서 만났어요!';
+        // 1건은 참가자 구성(나 포함/타인끼리)에 맞는 문장으로, 여러 건은
+        // "나↔A" 꼴 라벨을 이어 붙여 한 문장으로 만든다.
+        final message = switch (events) {
+          [final e] when e.involvesMe =>
+            '${e.partner.name}님과 ${e.distanceMeters.round()}m 거리에서 만났어요!',
+          [final e] => '${e.a.name}님과 ${e.b.name}님이 만났어요!',
+          _ =>
+            '만남 ${events.length}건: ${events.map(_encounterLabel).join(', ')}',
+        };
         final messenger = ScaffoldMessenger.of(context);
         messenger.hideCurrentSnackBar();
         messenger.showSnackBar(

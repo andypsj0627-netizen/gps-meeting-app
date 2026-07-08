@@ -262,7 +262,7 @@ void main() {
       findsNothing,
     );
 
-    // 조우 진입 반경(15m) 이내로 이동 → 스낵바 표시.
+    // 조우 진입 반경 이내(10m)로 이동 → 스낵바 표시.
     nearby.add([userAt('A', 10)]);
     await tester.pump();
     await tester.pump();
@@ -275,7 +275,7 @@ void main() {
     );
   });
 
-  testWidgets('두 사용자가 같은 방출에서 동시에 조우하면 스낵바 1개에 두 이름을 표시한다',
+  testWidgets('여러 쌍이 같은 방출에서 동시에 조우하면 스낵바 1개에 만남 목록을 표시한다',
       (tester) async {
     final nearby = StreamController<List<NearbyUser>>();
     addTearDown(nearby.close);
@@ -288,18 +288,49 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    // 같은 방출에 A(10m)·B(12m) 모두 진입 반경(15m) 이내로 배치한다.
+    // 같은 방출에 A(10m)·B(12m)를 배치한다. userAt은 정북 일렬 배치라 A↔B도
+    // 서로 2m 거리로 진입하므로, 나↔A·나↔B·A↔B 총 3건이 한 배치로 온다.
     nearby.add([userAt('A', 10), userAt('B', 12)]);
     await tester.pump();
     await tester.pump();
 
-    // 배치가 스낵바 1개로 모여 두 이름이 함께 표시된다.
+    // 배치가 스낵바 1개로 모여 "만남 K건: ..." 형식으로 표시된다.
     expect(
       find.byKey(const ValueKey('encounter_snackbar_text')),
       findsOneWidget,
     );
     expect(
-      find.text('A, B님과 가까운 거리에서 만났어요!'),
+      find.text('만남 3건: 나↔A, 나↔B, A↔B'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('나와 먼 두 사용자가 서로 만나면 타인끼리 조우 스낵바를 표시한다',
+      (tester) async {
+    final nearby = StreamController<List<NearbyUser>>();
+    addTearDown(nearby.close);
+
+    await _pumpWithService(
+      tester,
+      FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
+      nearbyStream: nearby.stream,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // A(200m)·B(210m)는 나와는 진입 반경 밖이지만 서로는 10m 거리다(정북 일렬
+    // 배치). 성립하는 쌍은 A↔B 하나뿐이다.
+    nearby.add([userAt('A', 200), userAt('B', 210)]);
+    await tester.pump();
+    await tester.pump();
+
+    // 나를 포함하지 않는 1건은 타인끼리 문구로 표시된다.
+    expect(
+      find.byKey(const ValueKey('encounter_snackbar_text')),
+      findsOneWidget,
+    );
+    expect(
+      find.text('A님과 B님이 만났어요!'),
       findsOneWidget,
     );
   });
@@ -336,7 +367,7 @@ void main() {
     await tester.pump();
     expect(find.byType(FlutterMap), findsOneWidget);
 
-    // 지도 복귀 후 사용자가 진입 반경(15m) 이내로 들어오면 조우 스낵바가 발생한다.
+    // 지도 복귀 후 사용자가 진입 반경 이내(10m)로 들어오면 조우 스낵바가 발생한다.
     nearby.add([userAt('A', 10)]);
     await tester.pump();
     await tester.pump();

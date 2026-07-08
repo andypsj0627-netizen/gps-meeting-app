@@ -8,6 +8,7 @@ import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
 import 'package:gps_meeting_app/features/map/providers/encounter_provider.dart';
 import 'package:gps_meeting_app/features/map/providers/location_provider.dart';
 import 'package:gps_meeting_app/features/map/providers/nearby_users_provider.dart';
+import 'package:gps_meeting_app/features/map/services/encounter_detector.dart';
 
 import 'helpers/location_test_helpers.dart';
 
@@ -62,7 +63,7 @@ void main() {
     return (container: container, events: events, batches: batches);
   }
 
-  test('사용자가 15m 이내로 이동하면 조우 이벤트를 방출한다', () async {
+  test('사용자가 진입 반경 이내로 이동하면 나↔상대 조우 이벤트를 방출한다', () async {
     final positions = StreamController<Position>();
     addTearDown(positions.close);
     final nearby = StreamController<List<NearbyUser>>();
@@ -79,16 +80,19 @@ void main() {
     await settle();
     expect(ctx.events, isEmpty);
 
-    // 15m 이내로 이동 → 조우 이벤트 방출.
+    // 진입 반경 이내(10m)로 이동 → 조우 이벤트 방출.
     nearby.add([userAt('A', 10)]);
     await settle();
 
     expect(ctx.events, hasLength(1));
-    expect(ctx.events.single.user.id, 'A');
-    expect(ctx.events.single.distanceMeters, closeTo(10, 0.5));
+    final event = ctx.events.single;
+    expect(event.involvesMe, isTrue);
+    expect(event.partner.id, 'A');
+    expect(event.distanceMeters, closeTo(10, 0.5));
   });
 
-  test('한 번의 방출에서 2명이 동시에 진입하면 배치 1개(길이 2)로 방출된다', () async {
+  test('한 번의 방출에서 여러 쌍이 진입하면 나↔상대·타인끼리 이벤트가 배치 1개로 묶인다',
+      () async {
     final positions = StreamController<Position>();
     addTearDown(positions.close);
     final nearby = StreamController<List<NearbyUser>>();
@@ -99,17 +103,26 @@ void main() {
     positions.add(fakePosition(center.latitude, center.longitude));
     await settle();
 
-    // 같은 방출에 두 사용자를 모두 진입 반경(15m) 안에 배치한다.
+    // 같은 방출에 A(10m)·B(12m)를 배치한다. userAt은 정북 일렬 배치라 A↔B도
+    // 서로 2m 거리로 진입하므로, 나↔A·나↔B에 타인끼리 쌍까지 총 3건이 성립한다.
     nearby.add([userAt('A', 10), userAt('B', 12)]);
     await settle();
 
-    // 한 재계산에서 나온 두 이벤트가 하나의 배치로 묶여 방출되어야 한다.
+    // 한 재계산에서 나온 이벤트 전부가 하나의 배치로 묶여 방출되어야 하고,
+    // 그 배치에는 나↔사용자 이벤트와 타인끼리 이벤트가 함께 담긴다.
     expect(ctx.batches, hasLength(1));
-    expect(ctx.batches.single, hasLength(2));
+    final batch = ctx.batches.single;
+    expect(batch, hasLength(3));
     expect(
-      ctx.batches.single.map((e) => e.user.id),
-      containsAll(['A', 'B']),
+      batch.map((e) => '${e.a.id}|${e.b.id}'),
+      containsAll([
+        '${EncounterDetector.selfId}|A',
+        '${EncounterDetector.selfId}|B',
+        'A|B',
+      ]),
     );
+    expect(batch.where((e) => e.involvesMe), hasLength(2));
+    expect(batch.where((e) => !e.involvesMe), hasLength(1));
   });
 
   test('사용자 목록이 로딩 중인 동안에는 위치가 있어도 이벤트가 없다', () async {
