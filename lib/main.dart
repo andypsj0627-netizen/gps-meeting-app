@@ -6,6 +6,8 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 
 void main() {
+  // Firebase 초기화는 첫 프레임을 지연시키지 않도록 firebaseInitProvider에서
+  // lazy하게 수행한다(프로필은 fallback이 있는 부가 기능).
   // Riverpod provider 트리를 앱 전체에 제공한다.
   runApp(const ProviderScope(child: MyApp()));
 }

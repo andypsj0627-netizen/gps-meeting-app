@@ -1,0 +1,14 @@
+rules_version = '2';
+
+// 개발용 임시 룰: Auth 도입 전이라 users 컬렉션만 열어둔다.
+// ponytail: 만료일 있는 open 룰 — Phase 2 Auth 붙이면 request.auth 기반으로 교체
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.time < timestamp.date(2026, 9, 1);
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

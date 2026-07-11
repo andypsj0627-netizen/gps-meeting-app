@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "608661164651",
+    "project_id": "gps-meeting-app",
+    "storage_bucket": "gps-meeting-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:608661164651:android:5c6cb8f7163e8dd6bbd72e",
+        "android_client_info": {
+          "package_name": "com.gpsmeetingapp.gps_meeting_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDeVz0Llb___rtUddL4spzJXjVDkB_oPFs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -16,4 +16,10 @@ class AppConstants {
   /// OpenStreetMap 타일 URL 템플릿.
   static const String osmTileUrl =
       'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+  /// 조우(만남)로 판정하는 거리 임계값(미터).
+  ///
+  /// 시뮬레이션 사용자가 내 위치 또는 다른 시뮬레이션 사용자와 이 거리 이내로
+  /// 접근하면 조우한 것으로 간주한다.
+  static const double encounterRadiusMeters = 30;
 }

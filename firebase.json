@@ -1,0 +1,26 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "gps-meeting-app",
+          "appId": "1:608661164651:android:5c6cb8f7163e8dd6bbd72e",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "gps-meeting-app",
+          "configurations": {
+            "android": "1:608661164651:android:5c6cb8f7163e8dd6bbd72e",
+            "ios": "1:608661164651:ios:33f438d4b37ed103bbd72e",
+            "web": "1:608661164651:web:23699b0aed8bd069bbd72e"
+          }
+        }
+      }
+    }
+  }
+}

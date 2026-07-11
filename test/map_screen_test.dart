@@ -2,29 +2,20 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:gps_meeting_app/features/map/providers/location_provider.dart';
-import 'package:gps_meeting_app/features/map/screens/map_screen.dart';
 
 import 'helpers/location_test_helpers.dart';
 
 /// 주어진 fake 서비스로 MapScreen 을 감싼 테스트 앱을 펌프한다.
+///
+/// 시뮬레이션 사용자는 빈 목록으로 override해 Firestore/타이머에 닿지 않게 한다.
 Future<void> _pumpWithService(
   WidgetTester tester,
   FakeLocationService service,
 ) async {
-  await tester.pumpWidget(
-    ProviderScope(
-      overrides: [
-        locationServiceProvider.overrideWithValue(service),
-      ],
-      child: MaterialApp(
-        home: MapScreen(tileProvider: FakeTileProvider()),
-      ),
-    ),
-  );
+  await pumpMapScreen(tester, locationService: service);
 }
 
 /// 주어진 스트림으로 MapScreen 을 감싼 테스트 앱을 펌프한다.

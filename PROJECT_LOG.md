@@ -4,6 +4,30 @@
 
 ---
 
+## 2026-07-11
+
+### 완료
+- Phase 2 착수 — Firebase 백엔드 구축:
+  - Firebase CLI(15.23.0) 설치, `flutterfire configure`로 web/android/ios 앱 등록 (`lib/firebase_options.dart`)
+  - Firestore 데이터베이스 생성 (서울 asia-northeast3), 개발용 보안 룰 배포 (`users` 컬렉션만 2026-09-01까지 open — Auth 도입 시 교체)
+  - `firebase_core` + `cloud_firestore` 연동. Firebase 초기화는 `firebaseInitProvider`로 지연 실행(첫 프레임 비차단), 실패 시 기본 프로필로 fallback
+  - 테스트 사용자 5명(이름/id/나이/성별)을 첫 실행 시 `users` 컬렉션에 자동 시드 (디버그 빌드, WriteBatch)
+- 시뮬레이션 사용자 마커 5개 (Worker/Opus 위임 → Advisor 검증):
+  - 내 위치 주변 200m 내 스폰, 1초 주기 랜덤 워크(5~15m), 300m 이탈 시 복귀
+  - 조우 판정: 내 위치 또는 다른 마커와 30m 이내 접근 시 조우(sticky), 하이라이트 + 탭 시 프로필 바텀시트(이름/id/나이/성별)
+- 코드 리뷰(8앵글 병렬 + 검증 에이전트)로 확정 결함 13건 발견 → 전부 수정:
+  - 프로필 로드 완료 시 마커 재배치/조우 초기화 버그, Firestore 타입 불일치 시 전체 프로필 폐기, 스폰 직후 조우 미판정, 타이머 영구 실행(autoDispose 전환), 시드 배치화, 죽은 유연성 제거, 테스트 pump 헬퍼 공용화 등
+- 훅 크로스플랫폼화: `.claude/settings.json`의 Mac 하드코딩 경로(이 PC에서 매번 실패)를 `.claude/hooks/*.sh` 스크립트로 분리 — flutter/dart 경로 자동 탐색(Windows `~/dev/flutter` + Mac `~/development/flutter`), Stop 훅은 flutter test 하드 게이트만 수행(자동 커밋/push 제거), analyze 실패 시 exit 2 피드백
+- 테스트 28건 전체 통과, dart analyze 클린
+
+### 다음 세션에서 할 일
+- Phase 2 계속: Firebase Auth (이메일/소셜 로그인) 설계 및 구현
+- 프로필 생성/수정 화면
+- 조우 sticky 상태 이중 저장(Set + bool) 단순화 검토 (리뷰 지적, 유지보수성)
+- Android 실기기 테스트 준비 (커맨드라인 SDK + USB 디버깅)
+
+---
+
 ## 2026-07-05 (2차 세션)
 
 ### 완료

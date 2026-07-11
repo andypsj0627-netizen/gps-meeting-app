@@ -5,7 +5,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../models/nearby_user.dart';
 import '../providers/location_provider.dart';
+import '../providers/nearby_users_provider.dart';
 
 /// 화면이 표시할 상위 단계.
 ///
@@ -272,7 +274,10 @@ class _MapView extends StatelessWidget {
   }
 }
 
-/// 내 위치 마커만 구독/리빌드하는 소형 Consumer 레이어.
+/// 내 위치 마커와 시뮬레이션 사용자 마커를 구독/리빌드하는 소형 Consumer 레이어.
+///
+/// 위치 이벤트나 시뮬레이션 갱신 시 이 레이어만 리빌드되어, 지도 본체는
+/// 유지된다.
 class _MarkerLayer extends ConsumerWidget {
   const _MarkerLayer();
 
@@ -282,6 +287,10 @@ class _MarkerLayer extends ConsumerWidget {
         ref.watch(positionStreamProvider.select((state) => state.value));
     if (position == null) return const MarkerLayer(markers: []);
     final latLng = LatLng(position.latitude, position.longitude);
+
+    final nearby = ref.watch(nearbyUsersProvider);
+    final colorScheme = Theme.of(context).colorScheme;
+
     return MarkerLayer(
       markers: [
         Marker(
@@ -291,11 +300,64 @@ class _MarkerLayer extends ConsumerWidget {
           height: 40,
           child: Icon(
             Icons.my_location,
-            color: Theme.of(context).colorScheme.primary,
+            color: colorScheme.primary,
             size: 32,
           ),
         ),
+        for (final user in nearby)
+          Marker(
+            key: ValueKey('nearby_user_${user.profile.id}'),
+            point: user.position,
+            width: 44,
+            height: 44,
+            child: GestureDetector(
+              // 조우 전에는 프로필을 열 수 없다.
+              onTap: user.encountered
+                  ? () => _showProfileSheet(context, user.profile)
+                  : null,
+              child: Icon(
+                Icons.person_pin_circle,
+                // 조우한 사용자는 강조색(secondary)으로 하이라이트한다.
+                color: user.encountered
+                    ? colorScheme.secondary
+                    : colorScheme.outline,
+                size: 36,
+              ),
+            ),
+          ),
       ],
     );
   }
+}
+
+/// 조우한 사용자의 프로필을 바텀시트로 표시한다.
+void _showProfileSheet(BuildContext context, NearbyUser profile) {
+  final genderLabel = switch (profile.gender) {
+    'm' => '남성',
+    'f' => '여성',
+    _ => profile.gender,
+  };
+  showModalBottomSheet<void>(
+    context: context,
+    builder: (context) => SafeArea(
+      child: Padding(
+        key: const ValueKey('profile_sheet'),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              profile.name,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 12),
+            Text('ID: ${profile.id}'),
+            Text('나이: ${profile.age}'),
+            Text('성별: $genderLabel'),
+          ],
+        ),
+      ),
+    ),
+  );
 }
