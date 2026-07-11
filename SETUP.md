@@ -72,3 +72,4 @@ Android Studio 없이 커맨드라인 도구만으로 가능하다.
 | 날짜 | OS | Flutter | 상태 |
 |------|----|---------|------|
 | 2026-07-05 | Windows 11 Pro (25H2) | 3.44.4 stable | Chrome 실행 확인 |
+| 2026-07-07 | macOS 26.5 (Apple Silicon) | 3.44.4 stable | Chrome 실행 + flutter test 확인, Android SDK 36 준비 완료 |

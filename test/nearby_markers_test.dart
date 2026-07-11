@@ -1,56 +1,68 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gps_meeting_app/features/map/providers/nearby_users_provider.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
 
 import 'helpers/location_test_helpers.dart';
 
-const _distance = Distance();
-const _center = LatLng(37.5665, 126.9780);
-
-/// 조우/비조우 사용자 마커를 얹은 MapScreen을 펌프한다.
-Future<void> _pump(WidgetTester tester, List<SimulatedUser> users) async {
-  await pumpMapScreen(
+/// 내 위치(= [testCenter])에 서서, 근처 사용자 스트림을 직접 제어하는 MapScreen을
+/// 펌프하고, 컨트롤러를 돌려준다. 스트림에 사용자를 밀어 넣어 마커/조우를 만든다.
+Future<StreamController<List<NearbyUser>>> _pump(WidgetTester tester) async {
+  final nearby = StreamController<List<NearbyUser>>();
+  addTearDown(nearby.close);
+  await pumpMapScreenWithService(
     tester,
-    locationService: FakeLocationService(
-      Stream.value(fakePosition(_center.latitude, _center.longitude)),
+    FakeLocationService(
+      Stream.value(fakePosition(testCenter.latitude, testCenter.longitude)),
     ),
-    nearbyUsers: users,
+    nearbyStream: nearby.stream,
   );
+  // 위치 수신 → 지도 표시 → nearbyUsersProvider가 근처 스트림을 구독한다.
   await tester.pump();
   await tester.pump();
+  return nearby;
 }
 
 void main() {
   testWidgets('시뮬레이션 사용자 마커 5개가 표시된다', (tester) async {
+    final nearby = await _pump(tester);
+
+    // 5명을 서로 다른 거리/방위로 배치한다(대부분 조우 반경 밖).
     final users = [
       for (var i = 1; i <= 5; i++)
-        fakeSimUser('user$i',
-            position: _distance.offset(_center, 40.0 * i, 60.0 * i)),
+        userAt('user$i', 80.0 * i, center: testCenter),
     ];
-
-    await _pump(tester, users);
+    nearby.add(users);
+    await tester.pump();
+    await tester.pump();
 
     for (var i = 1; i <= 5; i++) {
-      expect(find.byKey(ValueKey('nearby_user_user$i')), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('nearby_user_marker_user$i')),
+        findsOneWidget,
+      );
     }
   });
 
   testWidgets('조우한 마커를 탭하면 프로필 바텀시트가 열린다', (tester) async {
-    final users = [
-      fakeSimUser(
-        'userE',
-        name: '이서연',
-        age: 25,
-        gender: 'f',
-        position: _distance.offset(_center, 120, 90),
-        encountered: true,
-      ),
-    ];
+    final nearby = await _pump(tester);
 
-    await _pump(tester, users);
+    // 진입 반경 이내(55m)에 배치 → 조우 이벤트로 해금된다. 내 위치 마커와
+    // 화면에서 겹치지 않도록 동쪽으로 충분히 떨어뜨려 탭이 정확히 이 마커에 닿게 한다.
+    final user = NearbyUser(
+      id: 'userE',
+      name: '이서연',
+      age: 25,
+      gender: 'f',
+      position: testDistance.offset(testCenter, 55, 90),
+    );
+    nearby.add([user]);
+    await tester.pump();
+    await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('nearby_user_userE')));
+    // 해금된 마커를 탭하면 프로필 시트가 열린다.
+    await tester.tap(find.byKey(const ValueKey('nearby_user_marker_userE')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('profile_sheet')), findsOneWidget);
@@ -60,18 +72,22 @@ void main() {
     expect(find.text('성별: 여성'), findsOneWidget);
   });
 
-  testWidgets('조우 전 마커를 탭하면 바텀시트가 열리지 않는다', (tester) async {
-    final users = [
-      fakeSimUser(
-        'userN',
-        name: '김민준',
-        position: _distance.offset(_center, 120, 90),
-      ),
-    ];
+  testWidgets('조우 전(반경 밖) 마커를 탭하면 바텀시트가 열리지 않는다', (tester) async {
+    final nearby = await _pump(tester);
 
-    await _pump(tester, users);
+    // 진입 반경(60m) 밖(120m)에 배치 → 해금되지 않는다.
+    final user = NearbyUser(
+      id: 'userN',
+      name: '김민준',
+      age: 27,
+      gender: 'm',
+      position: testDistance.offset(testCenter, 120, 0),
+    );
+    nearby.add([user]);
+    await tester.pump();
+    await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('nearby_user_userN')));
+    await tester.tap(find.byKey(const ValueKey('nearby_user_marker_userN')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('profile_sheet')), findsNothing);

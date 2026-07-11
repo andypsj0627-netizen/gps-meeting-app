@@ -5,9 +5,13 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../models/encounter_event.dart';
 import '../models/nearby_user.dart';
+import '../providers/encounter_provider.dart';
 import '../providers/location_provider.dart';
 import '../providers/nearby_users_provider.dart';
+import '../utils/position_latlng.dart';
+import '../widgets/encounter_effects_layer.dart';
 
 /// 화면이 표시할 상위 단계.
 ///
@@ -41,6 +45,13 @@ const Set<MapEventSource> _userGestureSources = {
   MapEventSource.cursorKeyboardRotation,
   MapEventSource.keyboard,
 };
+
+/// 조우 이벤트 1건을 "나↔A" 또는 "A↔B" 꼴의 짧은 라벨로 만든다.
+///
+/// 여러 건이 한 배치로 왔을 때 스낵바 한 문장에 만남들을 이어 붙이기 위해 쓴다.
+String _encounterLabel(EncounterEvent event) => event.involvesMe
+    ? '나↔${event.partner.name}'
+    : '${event.a.name}↔${event.b.name}';
 
 /// 지도 화면.
 ///
@@ -78,7 +89,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     setState(() => _following = true);
     if (position != null) {
       _mapController.move(
-        LatLng(position.latitude, position.longitude),
+        position.latLng,
         // initialZoom으로 리셋하지 않고 현재 줌을 유지한다.
         _mapController.camera.zoom,
       );
@@ -94,26 +105,75 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 새 위치를 수신할 때마다 follow 모드일 때만 카메라를 이동시킨다.
-    // 첫 위치는 FlutterMap의 initialCenter가 처리하므로, 이전 데이터가 없던
-    // 첫 이벤트는 이동을 건너뛴다. flutter_map 8.x는 외부 컨트롤러의 카메라를
-    // initState에서 동기 초기화하므로 여기서 별도의 예외 방어는 필요 없다.
-    ref.listen<AsyncValue<Position>>(positionStreamProvider, (previous, next) {
-      final position = next.value;
-      if (position == null) return;
-      // 첫 위치(이전 데이터 없음)는 initialCenter가 처리한다.
-      if (previous?.value == null) return;
-      if (!mounted || !_following) return;
-      _mapController.move(
-        LatLng(position.latitude, position.longitude),
-        // 현재 줌을 유지하여 5m마다 줌이 리셋되지 않게 한다.
-        _mapController.camera.zoom,
-      );
-    });
-
     // 위치 이벤트마다 전체가 리빌드되지 않도록, 부모는 상태 전이(phase)만 구독한다.
     // 실제 마커 좌표는 아래 _MarkerLayer가 별도로 구독해 마커만 리빌드된다.
     final phase = ref.watch(positionStreamProvider.select(_phaseOf));
+
+    // 새 위치를 수신할 때마다 follow 모드일 때만 카메라를 이동시킨다.
+    // 첫 위치는 FlutterMap의 initialCenter가 처리하므로, 이전 데이터가 없던
+    // 첫 이벤트는 이동을 건너뛴다.
+    //
+    // data phase(지도가 떠 있음)에서만 리스너를 등록한다. flutter_map 8.x는
+    // 외부 주입 컨트롤러의 camera를 FlutterMap.initState에서야 초기화하는데,
+    // 로딩 단계에서 위치가 연속으로 방출되면(웹에서 실제 발생) 아직 마운트되지
+    // 않은 컨트롤러의 camera에 접근해 예외가 난다.
+    //
+    // 이 리스너의 camera 접근이 안전한 근거는 두 가지다. (1) data phase 밖에서는
+    // 리스너 자체가 등록되지 않으므로, 지도가 마운트되기 전에는 발화할 수 없다.
+    // (2) 최초 attach(첫 data 빌드의 FlutterMap.initState) 이후로는 컨트롤러의
+    // camera가 다시 null로 돌아가지 않는다 — flutter_map은 dispose에서 camera를
+    // 리셋하지 않는다. 따라서 재진입(data→loading→data)으로 initState가 재실행되지
+    // 않아도, 한 번 attach된 camera는 계속 유효하다.
+    if (phase == _MapPhase.data) {
+      ref.listen<AsyncValue<Position>>(positionStreamProvider, (previous, next) {
+        final position = next.value;
+        if (position == null) return;
+        // 첫 위치(이전 데이터 없음)는 initialCenter가 처리한다.
+        if (previous?.value == null) return;
+        if (!mounted || !_following) return;
+        _mapController.move(
+          position.latLng,
+          // 현재 줌을 유지하여 5m마다 줌이 리셋되지 않게 한다.
+          _mapController.camera.zoom,
+        );
+      });
+    }
+
+    // 조우 이벤트 배치가 방출될 때마다 스낵바로 알린다. 한 재계산에서 여러 쌍이
+    // 동시에 진입하면 한 배치로 오므로 스낵바 1개에 만남을 모아 표시하고, 배치가
+    // 연달아 오면 이전 스낵바를 즉시 감춰 최신 조우가 항상 보이게 한다.
+    //
+    // data phase(내 위치 확보됨)에서만 구독한다. 조우 감지 체인은 근처 사용자
+    // 스트림을 활성화하고, 그 스트림은 최초 내 위치([positionStreamProvider.future])를
+    // 기다린다. 로딩/오류 단계에서 미리 활성화하면 위치 미확보 상태로 화면을
+    // 벗어날 때 provider가 정리되며 오류가 나므로, 지도가 떠 있는 동안만 듣는다.
+    if (phase == _MapPhase.data) {
+      ref.listen<AsyncValue<List<EncounterEvent>>>(encounterEventsProvider,
+          (previous, next) {
+        final events = next.value;
+        if (events == null || events.isEmpty || !mounted) return;
+        // 1건은 참가자 구성(나 포함/타인끼리)에 맞는 문장으로, 여러 건은
+        // "나↔A" 꼴 라벨을 이어 붙여 한 문장으로 만든다.
+        final message = switch (events) {
+          [final e] when e.involvesMe =>
+            '${e.partner.name}님과 ${e.distanceMeters.round()}m 거리에서 만났어요!',
+          [final e] => '${e.a.name}님과 ${e.b.name}님이 만났어요!',
+          _ =>
+            '만남 ${events.length}건: ${events.map(_encounterLabel).join(', ')}',
+        };
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 2),
+            content: Text(
+              message,
+              key: const ValueKey('encounter_snackbar_text'),
+            ),
+          ),
+        );
+      });
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text(AppConstants.appName)),
@@ -143,8 +203,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// 지도 진입 시점의 첫 위치(초기 중심). data phase에서만 호출되므로 non-null.
   LatLng _initialCenter() {
-    final position = ref.read(positionStreamProvider).value!;
-    return LatLng(position.latitude, position.longitude);
+    return ref.read(positionStreamProvider).value!.latLng;
   }
 }
 
@@ -268,16 +327,17 @@ class _MapView extends StatelessWidget {
           // null이면 flutter_map이 기본 네트워크 프로바이더를 사용한다.
           tileProvider: tileProvider,
         ),
+        const EncounterEffectsLayer(),
+        const _NearbyUsersLayer(),
         const _MarkerLayer(),
       ],
     );
   }
 }
 
-/// 내 위치 마커와 시뮬레이션 사용자 마커를 구독/리빌드하는 소형 Consumer 레이어.
+/// 내 위치 마커를 구독/리빌드하는 소형 Consumer 레이어.
 ///
-/// 위치 이벤트나 시뮬레이션 갱신 시 이 레이어만 리빌드되어, 지도 본체는
-/// 유지된다.
+/// 위치 이벤트 시 이 레이어만 리빌드되어, 지도 본체는 유지된다.
 class _MarkerLayer extends ConsumerWidget {
   const _MarkerLayer();
 
@@ -286,11 +346,7 @@ class _MarkerLayer extends ConsumerWidget {
     final position =
         ref.watch(positionStreamProvider.select((state) => state.value));
     if (position == null) return const MarkerLayer(markers: []);
-    final latLng = LatLng(position.latitude, position.longitude);
-
-    final nearby = ref.watch(nearbyUsersProvider);
-    final colorScheme = Theme.of(context).colorScheme;
-
+    final latLng = position.latLng;
     return MarkerLayer(
       markers: [
         Marker(
@@ -300,28 +356,54 @@ class _MarkerLayer extends ConsumerWidget {
           height: 40,
           child: Icon(
             Icons.my_location,
-            color: colorScheme.primary,
+            color: Theme.of(context).colorScheme.primary,
             size: 32,
           ),
         ),
-        for (final user in nearby)
+      ],
+    );
+  }
+}
+
+/// 가상 근처 사용자 마커만 구독/리빌드하는 소형 Consumer 레이어.
+///
+/// 로딩 중이거나 오류가 발생하면 빈 레이어를 반환하여, 내 위치 지도 표시를
+/// 방해하지 않는다(근처 사용자 시뮬레이션은 어디까지나 보조 정보다).
+/// [AsyncValue.unwrapPrevious]로 이전 데이터를 벗겨내므로, 오류 상태에서
+/// 낡은 목록의 유령 마커가 남지 않는다.
+///
+/// 조우로 해금([unlockedUsersProvider])된 사용자만 마커를 탭해 프로필 바텀시트를
+/// 열 수 있고, 색으로 강조된다. 미해금 마커는 흐리게 표시되고 탭에 반응하지 않는다.
+class _NearbyUsersLayer extends ConsumerWidget {
+  const _NearbyUsersLayer();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // 해금 집합은 users보다 먼저 구독한다. 이 레이어는 지도 진입(첫 data 프레임)에
+    // 바로 빌드되지만 근처 사용자 스트림은 뒤늦게 방출되는데, unlockedUsersProvider가
+    // 조우 이벤트를 놓치지 않으려면 첫 조우가 발생하기 전부터 살아 있어야 한다.
+    // users==null 조기 반환보다 위에서 watch해, 첫 프레임부터 리스너를 붙여 둔다.
+    final unlocked = ref.watch(unlockedUsersProvider);
+    final users = ref.watch(
+      nearbyUsersProvider.select((state) => state.unwrapPrevious().value),
+    );
+    if (users == null) return const MarkerLayer(markers: []);
+    return MarkerLayer(
+      markers: [
+        for (final user in users)
           Marker(
-            key: ValueKey('nearby_user_${user.profile.id}'),
+            key: ValueKey('nearby_user_marker_${user.id}'),
             point: user.position,
-            width: 44,
-            height: 44,
+            width: 40,
+            height: 40,
             child: GestureDetector(
-              // 조우 전에는 프로필을 열 수 없다.
-              onTap: user.encountered
-                  ? () => _showProfileSheet(context, user.profile)
+              // 조우로 해금된 사용자만 프로필을 열 수 있다. 미해금은 탭 무반응.
+              onTap: unlocked.contains(user.id)
+                  ? () => _showProfileSheet(context, user)
                   : null,
-              child: Icon(
-                Icons.person_pin_circle,
-                // 조우한 사용자는 강조색(secondary)으로 하이라이트한다.
-                color: user.encountered
-                    ? colorScheme.secondary
-                    : colorScheme.outline,
-                size: 36,
+              child: _NearbyUserMarker(
+                user: user,
+                unlocked: unlocked.contains(user.id),
               ),
             ),
           ),
@@ -330,7 +412,46 @@ class _MarkerLayer extends ConsumerWidget {
   }
 }
 
-/// 조우한 사용자의 프로필을 바텀시트로 표시한다.
+/// 근처 사용자 한 명을 나타내는 이니셜 원형 마커.
+class _NearbyUserMarker extends StatelessWidget {
+  const _NearbyUserMarker({required this.user, required this.unlocked});
+
+  final NearbyUser user;
+
+  /// 조우로 해금된 사용자인지 여부. 해금 시 고유색으로, 미해금 시 회색으로 그린다.
+  final bool unlocked;
+
+  /// 마커 색상 팔레트. 사용자 id 해시로 골라 인원이 늘어도 안전하게 순환한다.
+  static const List<Color> _palette = [
+    Color(0xFFE53935), // red
+    Color(0xFF43A047), // green
+    Color(0xFF1E88E5), // blue
+    Color(0xFF8E24AA), // purple
+    Color(0xFFFB8C00), // orange
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    // Dart의 % 연산은 항상 음이 아닌 나머지를 반환하므로 hashCode 부호는 무관하다.
+    // 미해금 사용자는 회색(outline)으로 흐리게, 해금 사용자는 고유색으로 강조한다.
+    final color = unlocked
+        ? _palette[user.id.hashCode % _palette.length]
+        : Theme.of(context).colorScheme.outline;
+    final initial = user.name.isEmpty ? '?' : user.name.substring(0, 1);
+    return CircleAvatar(
+      backgroundColor: color,
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+
+/// 조우로 해금된 사용자의 프로필을 바텀시트로 표시한다(이름/ID/나이/성별).
 void _showProfileSheet(BuildContext context, NearbyUser profile) {
   final genderLabel = switch (profile.gender) {
     'm' => '남성',

@@ -6,8 +6,28 @@ import 'package:geolocator/geolocator.dart';
 import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
 import 'package:gps_meeting_app/features/map/providers/location_provider.dart';
 import 'package:gps_meeting_app/features/map/providers/nearby_users_provider.dart';
+import 'package:gps_meeting_app/features/map/providers/user_profiles_provider.dart';
 import 'package:gps_meeting_app/features/map/screens/map_screen.dart';
 import 'package:latlong2/latlong.dart';
+
+/// 서브미터 거리 비교/좌표 생성을 위해 미터 반올림을 끈 공용 거리 계산기.
+///
+/// FakeNearbyUsersService와 동일한 설정으로, 기준점에서 정확한 거리의 좌표를
+/// 만들거나 이동 거리를 검증할 때 쓴다.
+const testDistance = Distance(roundResult: false);
+
+/// [userAt]의 기본 중심점(서울시청 부근). 여러 테스트가 공유하는 기준점이다.
+const testCenter = LatLng(37.5665, 126.9780);
+
+/// [center]에서 정북(0도) 방향으로 [meters]만큼 떨어진 근처 사용자를 만든다.
+///
+/// id와 name을 동일하게 두어, 스낵바 등에서 이름으로 검증하기 쉽게 한다.
+/// [center]를 생략하면 [testCenter]를 기준으로 삼는다.
+NearbyUser userAt(String id, double meters, {LatLng? center}) => NearbyUser(
+      id: id,
+      name: id,
+      position: testDistance.offset(center ?? testCenter, meters, 0),
+    );
 
 /// 테스트용 위치 좌표를 만드는 헬퍼.
 Position fakePosition(double lat, double lng) => Position(
@@ -22,6 +42,40 @@ Position fakePosition(double lat, double lng) => Position(
       speed: 0,
       speedAccuracy: 0,
     );
+
+/// 주어진 fake 서비스로 MapScreen 을 감싼 테스트 앱을 펌프한다.
+///
+/// map_screen_test.dart와 encounter_effects_layer_test.dart가 verbatim 동일한
+/// 사본을 각자 들고 있던 것을, 사본 동기화 부담을 없애려고 공용 헬퍼로 추출했다.
+///
+/// [nearbyStream]을 주면 근처 사용자 서비스를 그 스트림으로 override한다.
+/// 지정하지 않으면, 실제 주기 타이머(pending timer)를 만들지 않도록 아무것도
+/// 방출하지 않는 스트림으로 override한다.
+///
+/// 프로필은 실제 Firebase에 닿지 않도록 [defaultNearbyUsers]로 override한다
+/// (근처 사용자 시뮬레이션은 프로필 로드가 완료되어야 시작되기 때문).
+Future<void> pumpMapScreenWithService(
+  WidgetTester tester,
+  FakeLocationService service, {
+  Stream<List<NearbyUser>>? nearbyStream,
+}) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        locationServiceProvider.overrideWithValue(service),
+        nearbyUsersServiceProvider.overrideWithValue(
+          ControlledNearbyUsersService(
+            nearbyStream ?? const Stream<List<NearbyUser>>.empty(),
+          ),
+        ),
+        userProfilesProvider.overrideWith((ref) async => defaultNearbyUsers),
+      ],
+      child: MaterialApp(
+        home: MapScreen(tileProvider: FakeTileProvider()),
+      ),
+    ),
+  );
+}
 
 /// 주입한 스트림을 그대로 반환하는 fake 위치 서비스.
 ///
@@ -54,32 +108,22 @@ class FakeLocationService implements LocationService {
   }
 }
 
-/// 고정된 시뮬레이션 사용자 목록을 반환하는 fake notifier.
+/// 주입한 스트림을 그대로 반환하는 fake 근처 사용자 서비스.
 ///
-/// 타이머/난수/Firestore 없이 마커 UI를 결정적으로 검증하기 위해 사용한다.
-class FakeNearbyUsersNotifier extends NearbyUsersNotifier {
-  FakeNearbyUsersNotifier(this._users);
+/// 실제 주기 타이머 대신 테스트가 직접 제어하는 [StreamController] 스트림을
+/// 주입하여, 위젯 테스트에서 pending timer 오류 없이 마커 갱신을 검증한다.
+/// roster는 무시한다(테스트는 스트림으로 직접 사용자를 방출한다).
+class ControlledNearbyUsersService implements NearbyUsersService {
+  ControlledNearbyUsersService(this._stream);
 
-  final List<SimulatedUser> _users;
+  final Stream<List<NearbyUser>> _stream;
 
   @override
-  List<SimulatedUser> build() => _users;
-}
-
-/// 테스트용 [SimulatedUser]를 만드는 헬퍼.
-SimulatedUser fakeSimUser(
-  String id, {
-  String name = '테스트',
-  int age = 20,
-  String gender = 'm',
-  LatLng position = const LatLng(0, 0),
-  bool encountered = false,
-}) {
-  return SimulatedUser(
-    profile: NearbyUser(id: id, name: name, age: age, gender: gender),
-    position: position,
-    encountered: encountered,
-  );
+  Stream<List<NearbyUser>> watchNearbyUsers(
+    LatLng center,
+    List<NearbyUser> roster,
+  ) =>
+      _stream;
 }
 
 /// 네트워크 요청 없이 투명 이미지를 반환하는 테스트용 타일 프로바이더.
@@ -90,29 +134,4 @@ class FakeTileProvider extends TileProvider {
   ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
     return MemoryImage(TileProvider.transparentImage);
   }
-}
-
-/// [MapScreen]을 ProviderScope/MaterialApp 스캐폴드로 감싸 펌프한다.
-///
-/// 위치 서비스는 [locationService]로, 시뮬레이션 사용자는 [nearbyUsers]로
-/// override한다(기본 빈 목록이라 Firestore/타이머에 닿지 않는다). 타일은
-/// 네트워크에 닿지 않도록 [FakeTileProvider]로 고정한다. 펌프 타이밍은
-/// 호출자가 제어한다(이 함수는 pumpWidget만 수행).
-Future<void> pumpMapScreen(
-  WidgetTester tester, {
-  required LocationService locationService,
-  List<SimulatedUser> nearbyUsers = const [],
-}) async {
-  await tester.pumpWidget(
-    ProviderScope(
-      overrides: [
-        locationServiceProvider.overrideWithValue(locationService),
-        nearbyUsersProvider
-            .overrideWith(() => FakeNearbyUsersNotifier(nearbyUsers)),
-      ],
-      child: MaterialApp(
-        home: MapScreen(tileProvider: FakeTileProvider()),
-      ),
-    ),
-  );
 }
