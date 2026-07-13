@@ -19,4 +19,9 @@ FLUTTER=$(find_tool flutter) || {
   exit 2
 }
 
+# 맥 Xcode 손상 시 xcrun shim을 PATH에 끼운다(정상 머신에선 no-op).
+# SHIM_DIR을 만들면 종료 시 정리한다(비어 있으면 rm 생략).
+trap 'test -n "$SHIM_DIR" && rm -rf "$SHIM_DIR"' EXIT
+setup_xcrun_shim
+
 "$FLUTTER" test 1>&2 || { echo 'flutter test 실패 — 세션 종료 전 수정 필요' >&2; exit 2; }

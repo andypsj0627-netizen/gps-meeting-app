@@ -143,10 +143,15 @@ final locationServiceProvider = Provider<LocationService>((ref) {
 /// [locationServiceProvider]에 위임하므로, 서비스만 override하면
 /// 이 provider의 동작 전체를 테스트에서 제어할 수 있다.
 ///
+/// autoDispose로 두는 이유: 지도 화면을 벗어나거나 로그아웃한 뒤에도 GPS 스트림이
+/// 계속 도는 누수를 막는다. Riverpod 3는 non-autoDispose provider를 구독 해제 시
+/// pause만 하는데, geolocator의 네이티브 위치 스트림은 pause에 반응하지 않고 계속
+/// 방출하므로, autoDispose로 완전히 해제해야 실제로 센서가 멈춘다.
+///
 /// Riverpod 3 는 기본적으로 오류 발생 시 자동 재시도(백오프 Timer)를 수행하는데,
 /// 여기서는 권한 거부 시 사용자가 직접 "재시도" 버튼을 누르도록 설계했으므로
 /// [retry] 를 null 로 반환해 자동 재시도를 비활성화한다.
-final positionStreamProvider = StreamProvider<Position>(
+final positionStreamProvider = StreamProvider.autoDispose<Position>(
   (ref) {
     final service = ref.watch(locationServiceProvider);
     return service.getPositionStream();

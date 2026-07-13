@@ -4,6 +4,37 @@
 
 ---
 
+## 2026-07-13
+
+### 완료
+- Firebase Auth (이메일/비밀번호) — 설계 승인 후 Worker/Opus 구현, Advisor 검증:
+  - `AuthUser` 경계 모델(firebase_auth의 User 미노출), `AuthRepository`(signIn/signUp/signOut), `AuthFailure` 예외(코드→한국어 메시지, models로 승격)
+  - 라우터 provider 전환: /splash·/login·/ + redirect (GoRouter 1회 생성, ValueNotifier+refreshListenable로 재평가 — 재생성 시 네비게이션 스택 초기화 함정 회피)
+  - 로그인/회원가입 토글 폼, 가입 시 users/{uid} 최소 문서({email, createdAt}) 자동 생성, 지도 AppBar에 로그아웃(임시 배치)
+  - 시뮬레이션 마커와 실제 회원 문서 분리: 시드에 `sim: true`, 로드는 where(sim==true)
+- 코드 리뷰(8앵글 → 후보 34건 → 15건 검증 → 확정 11건) 후 전부 수정:
+  - 보안: Firestore 룰 sim 시드 절의 타인 문서 덮어쓰기 구멍(resource 가드 추가), 컬렉션 열거로 전 회원 이메일 유출(get/list 분리, list는 sim==true 한정)
+  - 복구 경로: Firebase init 실패 시 로그인 화면 영구 고립 → 스플래시 에러 UI + 재시도(invalidate), init 무한 대기 → 10초 타임아웃
+  - 프라이버시: 로그아웃 후 GPS 스트림 지속(Riverpod3 pause는 geolocator 네이티브에 안 닿음) → positionStreamProvider autoDispose 전환
+  - 기타: GoRouter dispose 누락(FIFO 순서로 등록), signOut 에러 스낵바, 테스트 pump/override 헬퍼 통합(pumpApp/pumpUntilFound), re-export shim 제거, 낡은 lazy init 주석 정정, /splash NoTransitionPage, xcrun shim을 find-flutter-tool.sh 공용 함수로 이동
+  - 주요 기각: 릴리즈 sim 마이그레이션 공백(의도된 kDebugMode 가드), signUp 스키마 충돌(sim 필터+null-safe 파싱이 방어)
+- 세션 시작 Git 동기화 자동화: SessionStart 훅이 fetch 후 behind/ahead 상태를 컨텍스트로 주입 (프로젝트 레벨로 이동, 윈도우에도 자동 적용)
+- 테스트 68건 통과 (행 이슈 2건 수정: 단일 구독 StreamController의 리스너 없는 close() 무한 대기 → broadcast, pumpAndSettle vs 무한 스피너 → 유한 pumpUntilFound), dart analyze 클린
+
+### 설계 부채 추가
+- 미로그인 redirect가 원래 목적지(state.uri)를 버림 — 보호 라우트가 2개 이상 되거나 딥링크 도입 시 from 파라미터 보존 구현 (현재는 보호 대상이 '/' 하나라 피해 0)
+- Firebase init을 main()에서 선시작(warm-up)하면 스플래시 체류 단축 가능 — 실측 후 판단
+- signUp의 프로필 문서 생성 실패는 debugPrint로만 삼킴 — 프로필 화면(다음 작업)이 문서 부재를 정상 케이스로 취급하고 set()으로 자연 복구해야 함 (브리프에 전제 명시할 것)
+
+### 다음 세션에서 할 일
+- **firestore.rules 배포 필요** (`firebase deploy --only firestore:rules`) — 로컬만 수정된 상태
+- 크롬 실동작 확인: 회원가입 → 로그인 → 지도 → 로그아웃 (콘솔에서 이메일/비밀번호 활성화 완료됨)
+- 프로필 생성/수정 화면 (이름/나이/성별 입력 — 가입 문서의 name 공백을 채우는 작업)
+- 조우 sticky 상태 이중 저장(Set + bool) 단순화 검토 (7/11 리뷰 지적)
+- Android 실기기 테스트 준비
+
+---
+
 ## 2026-07-11
 
 ### 완료

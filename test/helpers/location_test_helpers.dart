@@ -3,11 +3,14 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:gps_meeting_app/features/auth/models/auth_user.dart';
+import 'package:gps_meeting_app/features/auth/providers/auth_providers.dart';
 import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
 import 'package:gps_meeting_app/features/map/providers/location_provider.dart';
 import 'package:gps_meeting_app/features/map/providers/nearby_users_provider.dart';
 import 'package:gps_meeting_app/features/map/providers/user_profiles_provider.dart';
 import 'package:gps_meeting_app/features/map/screens/map_screen.dart';
+import 'package:gps_meeting_app/main.dart';
 import 'package:latlong2/latlong.dart';
 
 /// 서브미터 거리 비교/좌표 생성을 위해 미터 반올림을 끈 공용 거리 계산기.
@@ -73,6 +76,59 @@ Future<void> pumpMapScreenWithService(
       child: MaterialApp(
         home: MapScreen(tileProvider: FakeTileProvider()),
       ),
+    ),
+  );
+}
+
+/// [finder]가 나타날 때까지 최대 [maxPumps]회 pump한다.
+///
+/// 스플래시/지도 로딩 뷰의 CircularProgressIndicator가 무한 애니메이션이라
+/// pumpAndSettle은 영원히 settle하지 못하고 타임아웃된다. 대신 유한 횟수만
+/// pump하며 원하는 위젯 등장을 기다린다.
+Future<void> pumpUntilFound(
+  WidgetTester tester,
+  Finder finder, {
+  int maxPumps = 20,
+}) async {
+  for (var i = 0; i < maxPumps; i++) {
+    if (finder.evaluate().isNotEmpty) break;
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+  // 위젯이 등장한 직후는 페이지 전환 애니메이션(~300ms) 도중이라 이전 페이지가
+  // 아직 트리에 남아 있다. 전환을 마저 끝내 findsNothing 단언이 안정되게 한다.
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pump();
+}
+
+/// [MyApp]을 라우터 테스트에 필요한 4종 override와 함께 펌프한다.
+///
+/// - [authStream]: 인증 상태 스트림. 미지정 시 미로그인(`null`)을 방출한다.
+///   Stream.error를 넘기면 에러 경로(스플래시 복구 UI)도 그대로 검증할 수 있다.
+/// - [positionStream]: 위치 스트림. 미지정 시 아무것도 방출하지 않는 빈 스트림.
+///   지도 화면이 뜨지 않아 위치 스트림에 리스너가 붙지 않는 테스트는, 단일 구독
+///   컨트롤러가 리스너 없이 close()되지 않아 teardown이 멈추므로 broadcast
+///   StreamController의 stream을 넘겨야 한다.
+///
+/// 프로필은 실제 Firebase에 닿지 않도록 [defaultNearbyUsers]로 override한다.
+Future<void> pumpApp(
+  WidgetTester tester, {
+  Stream<AuthUser?>? authStream,
+  Stream<Position>? positionStream,
+}) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        authStateChangesProvider
+            .overrideWith((ref) => authStream ?? Stream.value(null)),
+        locationServiceProvider.overrideWithValue(
+          FakeLocationService(positionStream ?? const Stream<Position>.empty()),
+        ),
+        nearbyUsersServiceProvider.overrideWithValue(
+          ControlledNearbyUsersService(const Stream<List<NearbyUser>>.empty()),
+        ),
+        userProfilesProvider.overrideWith((ref) async => defaultNearbyUsers),
+      ],
+      child: const MyApp(),
     ),
   );
 }

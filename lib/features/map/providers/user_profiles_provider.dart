@@ -1,9 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../firebase_options.dart';
+import '../../../core/firebase/firebase_providers.dart';
 import '../models/nearby_user.dart';
 
 /// Firestore 접근 실패(미생성/오프라인) 시 사용할 기본 테스트 사용자 5명.
@@ -33,13 +32,16 @@ class UserProfileRepository {
   Future<List<NearbyUser>> loadProfiles() async {
     final firestore = FirebaseFirestore.instance;
     final collection = firestore.collection('users');
-    final snapshot = await collection.get();
+    // 회원가입으로 생긴 실제 사용자 문서(sim 없음)가 지도 위 가짜 마커로
+    // 나타나지 않도록 sim==true 문서만 로드한다. 쿼리 결과가 비면 기존 로직대로
+    // 시드하며 같은 id로 set하므로 sim 없는 기존 문서도 자동 마이그레이션된다.
+    final snapshot = await collection.where('sim', isEqualTo: true).get();
 
     if (snapshot.docs.isEmpty) {
       if (kDebugMode) {
         final batch = firestore.batch();
         for (final user in defaultNearbyUsers) {
-          batch.set(collection.doc(user.id), user.toMap());
+          batch.set(collection.doc(user.id), {...user.toMap(), 'sim': true});
         }
         await batch.commit();
       }
@@ -63,17 +65,6 @@ class UserProfileRepository {
 final userProfileRepositoryProvider = Provider<UserProfileRepository>(
   (ref) => const UserProfileRepository(),
 );
-
-/// Firebase 초기화를 첫 프레임 경로 밖에서 수행하는 provider.
-///
-/// main()에서 runApp 전에 초기화하면 첫 프레임이 지연되므로, 프로필처럼
-/// fallback이 있는 부가 기능이 실제로 필요할 때 lazy하게 초기화한다.
-/// 테스트에서는 no-op으로 override하여 실제 Firebase에 닿지 않게 한다.
-final firebaseInitProvider = FutureProvider<void>((ref) async {
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-});
 
 /// 주변 사용자 프로필 목록 provider.
 ///

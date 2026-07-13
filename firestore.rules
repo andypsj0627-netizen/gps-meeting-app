@@ -1,11 +1,28 @@
 rules_version = '2';
 
-// 개발용 임시 룰: Auth 도입 전이라 users 컬렉션만 열어둔다.
-// ponytail: 만료일 있는 open 룰 — Phase 2 Auth 붙이면 request.auth 기반으로 교체
+// Auth 적용: 로그인한 사용자만 개별 프로필을 열람(get)하고, 자기 문서만 쓸 수 있다.
+// 컬렉션 열거(list)는 이메일 평문 저장 중이라 sim==true 문서로만 제한한다.
+// 시뮬레이션 시드(sim==true)는 만료일까지 한시적으로 허용한다.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId} {
-      allow read, write: if request.time < timestamp.date(2026, 9, 1);
+      // 개별 프로필 문서 열람은 로그인한 사용자에게 허용한다.
+      allow get: if request.auth != null;
+      // get/list 분리 이유: 이메일이 평문으로 저장되는 동안 컬렉션 전체를 열거하면
+      // 이메일이 유출된다. 그래서 list(컬렉션 쿼리)는 sim==true 문서로만 제한한다.
+      // 앱의 유일한 list 쿼리가 where('sim', isEqualTo: true)라 이 규칙을 통과한다.
+      allow list: if request.auth != null && resource.data.sim == true;
+      // 자기 자신의 문서만 쓸 수 있다.
+      allow write: if request.auth.uid == userId;
+      // ponytail: 시뮬레이션 시드(sim==true)는 디버그 빌드가 임의 doc id로 쓰므로
+      // 2026-09-01까지 한시 허용. 시드 방식을 서버 함수/관리자로 옮기면 이 줄 삭제.
+      // resource 가드(resource == null || resource.data.sim == true): 신규 생성(null)은
+      // 시드가 동작하도록 허용하되, 기존 실사용자 문서(sim 없음/false)를 sim 페이로드로
+      // 덮어써 오염시키는 것은 막는다.
+      allow write: if request.auth != null
+        && request.time < timestamp.date(2026, 9, 1)
+        && request.resource.data.sim == true
+        && (resource == null || resource.data.sim == true);
     }
     match /{document=**} {
       allow read, write: if false;
