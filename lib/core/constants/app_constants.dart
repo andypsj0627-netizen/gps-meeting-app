@@ -43,4 +43,11 @@ class AppConstants {
   ///
   /// 진입 반경과 마찬가지로 테스트 단계 확대값. 출시 전 40.0으로 되돌릴 것.
   static const double encounterExitRadius = 100.0;
+
+  /// 개발 단계에서 로그인 화면을 건너뛰고 바로 지도로 진입하기 위한 임시 플래그.
+  ///
+  /// false면 앱 시작 시 로그인 화면 없이 곧바로 지도('/')가 뜨고, 인증 배선 자체가
+  /// 활성화되지 않는다. 로그인 화면 코드는 삭제하지 않고 이 플래그로 우회만 한다.
+  /// 출시 전(또는 로그인 화면 디자인 작업을 재개할 때) true로 되돌릴 것.
+  static const bool requireLogin = false;
 }

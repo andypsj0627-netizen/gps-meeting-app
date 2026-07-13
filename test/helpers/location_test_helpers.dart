@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:gps_meeting_app/core/router/app_router.dart';
 import 'package:gps_meeting_app/features/auth/models/auth_user.dart';
 import 'package:gps_meeting_app/features/auth/providers/auth_providers.dart';
 import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
@@ -108,16 +109,21 @@ Future<void> pumpUntilFound(
 ///   지도 화면이 뜨지 않아 위치 스트림에 리스너가 붙지 않는 테스트는, 단일 구독
 ///   컨트롤러가 리스너 없이 close()되지 않아 teardown이 멈추므로 broadcast
 ///   StreamController의 stream을 넘겨야 한다.
+/// - [requireLogin]: 로그인 요구 여부. 기본 true라 기존 인증 흐름 테스트는 무수정
+///   통과한다. false를 주면 인증 배선을 생략하고 바로 지도로 진입하는 우회 모드를
+///   검증한다.
 ///
 /// 프로필은 실제 Firebase에 닿지 않도록 [defaultNearbyUsers]로 override한다.
 Future<void> pumpApp(
   WidgetTester tester, {
   Stream<AuthUser?>? authStream,
   Stream<Position>? positionStream,
+  bool requireLogin = true,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        requireLoginProvider.overrideWithValue(requireLogin),
         authStateChangesProvider
             .overrideWith((ref) => authStream ?? Stream.value(null)),
         locationServiceProvider.overrideWithValue(

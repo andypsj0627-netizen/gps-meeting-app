@@ -80,4 +80,20 @@ void main() {
     expect(find.byKey(const ValueKey('splash_error_text')), findsOneWidget);
     expect(find.byType(LoginScreen), findsNothing);
   });
+
+  testWidgets('requireLogin이 false면 로그인 없이 바로 지도 화면을 표시한다',
+      (tester) async {
+    // 우회 모드: auth 스트림이 미로그인(기본 null)이어도 로그인 화면을 거치지 않고
+    // 곧바로 지도가 떠야 한다. 위치 스트림에 리스너가 붙지 않는 경로가 아니므로
+    // (MapScreen이 뜬다) 단일 구독 스트림을 써도 되지만, 아무것도 방출하지 않아
+    // 지도는 로딩 뷰에 머문다.
+    final controller = StreamController<Position>();
+    addTearDown(controller.close);
+
+    await pumpApp(tester, requireLogin: false, positionStream: controller.stream);
+    await pumpUntilFound(tester, find.byType(MapScreen));
+
+    expect(find.byType(MapScreen), findsOneWidget);
+    expect(find.byType(LoginScreen), findsNothing);
+  });
 }

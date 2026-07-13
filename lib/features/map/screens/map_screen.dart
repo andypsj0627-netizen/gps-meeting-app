@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/router/app_router.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../models/encounter_event.dart';
 import '../models/nearby_user.dart';
@@ -181,24 +182,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         title: const Text(AppConstants.appName),
         // 임시 배치 — 이후 프로필/설정 화면으로 이동
         actions: [
-          IconButton(
-            key: const ValueKey('logout_button'),
-            icon: const Icon(Icons.logout),
-            tooltip: '로그아웃',
-            onPressed: () async {
-              try {
-                await ref.read(authRepositoryProvider).signOut();
-              } catch (_) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('로그아웃에 실패했어요. 다시 시도해주세요.'),
-                    ),
-                  );
+          if (ref.watch(requireLoginProvider))
+            IconButton(
+              key: const ValueKey('logout_button'),
+              icon: const Icon(Icons.logout),
+              tooltip: '로그아웃',
+              onPressed: () async {
+                try {
+                  await ref.read(authRepositoryProvider).signOut();
+                } catch (_) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('로그아웃에 실패했어요. 다시 시도해주세요.'),
+                      ),
+                    );
+                  }
                 }
-              }
-            },
-          ),
+              },
+            ),
         ],
       ),
       floatingActionButton: phase == _MapPhase.data

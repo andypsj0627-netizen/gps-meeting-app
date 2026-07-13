@@ -6,7 +6,14 @@ import '../../features/auth/models/auth_user.dart';
 import '../../features/auth/providers/auth_providers.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/map/screens/map_screen.dart';
+import '../constants/app_constants.dart';
 import '../firebase/firebase_providers.dart';
+
+/// 로그인 요구 여부 provider.
+///
+/// [AppConstants.requireLogin]을 감싸 라우터가 이 값을 watch하게 한다. 테스트에서
+/// 이 provider를 override해 우회 모드/인증 모드를 각각 검증하는 진입점이다.
+final requireLoginProvider = Provider<bool>((ref) => AppConstants.requireLogin);
 
 /// 앱 라우터 provider.
 ///
@@ -16,6 +23,35 @@ import '../firebase/firebase_providers.dart';
 /// refreshListenable로 넘겨, 라우터 인스턴스는 유지한 채 redirect만 다시
 /// 평가되게 한다.
 final routerProvider = Provider<GoRouter>((ref) {
+  // 우회 모드: 로그인 화면·인증 배선(ValueNotifier/ref.listen/refreshListenable/
+  // redirect) 전부 생략하고 바로 지도('/')로 진입한다. authStateChangesProvider가
+  // 라우터 경유로 활성화되지 않으므로 Firebase init도 라우터가 켜지 않는다.
+  // Firebase init은 기존처럼 userProfilesProvider가 필요할 때 lazy 실행되고,
+  // 인증 없는 Firestore 접근은 permission-denied → 기본 5인 fallback으로 동작한다.
+  // 로그인 화면 코드 보존을 위해 라우트 3개는 인증 모드와 동일하게 등록한다.
+  if (!ref.watch(requireLoginProvider)) {
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/splash',
+          pageBuilder: (context, state) =>
+              const NoTransitionPage(child: _SplashScreen()),
+        ),
+        GoRoute(
+          path: '/login',
+          builder: (context, state) => const LoginScreen(),
+        ),
+        GoRoute(
+          path: '/',
+          builder: (context, state) => const MapScreen(),
+        ),
+      ],
+    );
+    ref.onDispose(router.dispose);
+    return router;
+  }
+
   // 인증 상태를 refreshListenable이 감지할 수 있는 ValueNotifier로 옮긴다.
   final notifier = ValueNotifier<AsyncValue<AuthUser?>>(const AsyncLoading());
   ref.listen(
