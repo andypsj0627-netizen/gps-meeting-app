@@ -6,7 +6,19 @@
 
 ## 2026-07-13
 
-### 완료
+### 완료 (2차: 지도 기능 테스트 + 조우 재잠금 + 로그인 우회)
+- 크롬 실동작 확인 완료: 로그인 → 지도 전환, 시뮬레이션 마커, 조우 해금(색+프로필 탭) 동작 확인 (사용자 확인)
+- 조우 재잠금 (사용자 요청): 해금을 sticky 누적 → **현재 조우 활성 상태 파생**으로 전환
+  - 조우 반경(60m) 진입 시 해금, 해제 반경(100m) 이탈 또는 목록 소실 시 재잠금(회색+탭 무반응). 여러 쌍에 걸친 사용자는 마지막 쌍 해제 시 잠김
+  - `EncounterDetector.activeUserIds` 게터 + `encounterUpdatesProvider`(이벤트+활성 집합을 단일 소스로 방출, 재잠금은 이벤트 없이 집합 변화로 전파) 신설, `encounterEventsProvider`는 파생으로 재구현(스낵바·펄스 소비처 무변경)
+  - 부수 효과: 조우 반응이 단일 팬아웃 지점으로 모여 7/8 "조우 체인 가드 분산" 설계 부채 부분 해소
+- 로그인 우회 플래그 (사용자 요청: 로그인 화면은 나중에 디자인 후 재활성화):
+  - `AppConstants.requireLogin = false` — 앱 시작 시 로그인 화면 없이 바로 지도. **로그인 화면 작업 재개 시 true 복원**
+  - 우회 시 인증 배선 자체를 생략(라우터 조기 반환), 로그아웃 버튼 숨김, Auth 코드는 전부 보존
+  - 우회 모드에서 Firestore 프로필은 인증 룰에 막혀 기본 5인 fallback으로 동작(화면상 동일)
+- `flutter test` 75건 통과 (재잠금 6건 + 우회 1건 신규), dart analyze 클린
+
+### 완료 (1차: Firebase Auth)
 - Firebase Auth (이메일/비밀번호) — 설계 승인 후 Worker/Opus 구현, Advisor 검증:
   - `AuthUser` 경계 모델(firebase_auth의 User 미노출), `AuthRepository`(signIn/signUp/signOut), `AuthFailure` 예외(코드→한국어 메시지, models로 승격)
   - 라우터 provider 전환: /splash·/login·/ + redirect (GoRouter 1회 생성, ValueNotifier+refreshListenable로 재평가 — 재생성 시 네비게이션 스택 초기화 함정 회피)
