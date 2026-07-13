@@ -140,6 +140,36 @@ void main() {
     expect(ctx.events, isEmpty);
   });
 
+  test('멀어지면 unlockedUsersProvider에서 해당 id가 재잠금된다', () async {
+    final positions = StreamController<Position>();
+    addTearDown(positions.close);
+    final nearby = StreamController<List<NearbyUser>>();
+    addTearDown(nearby.close);
+
+    final ctx = setUpContainer(positions.stream, nearby.stream);
+    // autoDispose 연쇄를 살리기 위해 해금 provider를 구독해 둔다. 이 구독만으로
+    // encounterUpdatesProvider 체인도 함께 유지되어야 정상이다.
+    ctx.container.listen(
+      unlockedUsersProvider,
+      (_, __) {},
+      fireImmediately: true,
+    );
+
+    positions.add(fakePosition(center.latitude, center.longitude));
+    await settle();
+
+    // provider 내부 detector는 AppConstants 기본 반경(enter=60/exit=100)을 쓴다.
+    // 진입: 10m는 enter(60) 미만 → 해금된다.
+    nearby.add([userAt('A', 10)]);
+    await settle();
+    expect(ctx.container.read(unlockedUsersProvider), contains('A'));
+
+    // 이탈: 200m는 exit(100) 초과 → 활성 집합에서 빠져 재잠금된다.
+    nearby.add([userAt('A', 200)]);
+    await settle();
+    expect(ctx.container.read(unlockedUsersProvider), isNot(contains('A')));
+  });
+
   test('사용자 목록이 오류인 동안에는 낡은 데이터로 조우를 만들지 않는다', () async {
     final positions = StreamController<Position>();
     addTearDown(positions.close);

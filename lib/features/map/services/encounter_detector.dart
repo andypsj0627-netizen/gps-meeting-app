@@ -107,4 +107,21 @@ class EncounterDetector {
 
     return events;
   }
+
+  /// 현재 조우 활성 상태인 쌍에 등장하는 사용자 id 집합(나 [selfId] 제외).
+  ///
+  /// [_active]의 각 키는 [_pairKey]로 정규화된 'x|y' 꼴이며 항상 두 요소로
+  /// 이루어진다. 각 키를 '|'로 나눠 [selfId]를 뺀 상대 id들을 모은다. 나↔상대
+  /// 조우면 상대 id가, 타인끼리 조우면 두 사용자 id가 모두 담긴다. 해금 여부는
+  /// 이 집합에서 파생하므로, [exitRadius] 밖으로 벌어지거나 목록에서 사라져
+  /// 쌍이 [_active]에서 빠지면 해당 id도 자동으로 사라진다.
+  Set<String> get activeUserIds {
+    final ids = <String>{};
+    for (final key in _active) {
+      for (final id in key.split('|')) {
+        if (id != selfId) ids.add(id);
+      }
+    }
+    return ids;
+  }
 }

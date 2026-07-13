@@ -72,6 +72,41 @@ void main() {
     expect(find.text('성별: 여성'), findsOneWidget);
   });
 
+  testWidgets('조우로 해금된 마커가 멀어지면 재잠금되고 탭해도 프로필이 안 열린다',
+      (tester) async {
+    final nearby = await _pump(tester);
+
+    // 진입 반경 이내(55m)에 배치 → 조우 이벤트로 해금된다.
+    final entering = NearbyUser(
+      id: 'userE',
+      name: '이서연',
+      age: 25,
+      gender: 'f',
+      position: testDistance.offset(testCenter, 55, 90),
+    );
+    nearby.add([entering]);
+    await tester.pump();
+    await tester.pump();
+
+    // 이탈 반경(100m) 밖(200m)으로 같은 id를 이동 → 조우 활성 해제 → 재잠금.
+    final leaving = NearbyUser(
+      id: 'userE',
+      name: '이서연',
+      age: 25,
+      gender: 'f',
+      position: testDistance.offset(testCenter, 200, 90),
+    );
+    nearby.add([leaving]);
+    await tester.pump();
+    await tester.pump();
+
+    // 재잠금된 마커를 탭해도 프로필 시트가 열리지 않아야 한다.
+    await tester.tap(find.byKey(const ValueKey('nearby_user_marker_userE')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('profile_sheet')), findsNothing);
+  });
+
   testWidgets('조우 전(반경 밖) 마커를 탭하면 바텀시트가 열리지 않는다', (tester) async {
     final nearby = await _pump(tester);
 

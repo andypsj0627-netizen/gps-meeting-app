@@ -167,6 +167,47 @@ void main() {
     );
   });
 
+  test('진입하면 activeUserIds에 상대 id가 담긴다', () {
+    final detector = makeDetector();
+
+    detector.update(me, [userAt('A', 10)]);
+
+    expect(detector.activeUserIds, {'A'});
+    // 나(selfId)는 활성 사용자 집합에 들어가지 않는다.
+    expect(detector.activeUserIds, isNot(contains(EncounterDetector.selfId)));
+  });
+
+  test('exitRadius 이상 이탈하면 activeUserIds에서 제거된다', () {
+    final detector = makeDetector();
+
+    detector.update(me, [userAt('A', 10)]);
+    expect(detector.activeUserIds, {'A'});
+
+    // exitRadius(40m) 이상 이탈 → 활성 집합에서 빠진다.
+    detector.update(me, [userAt('A', 45)]);
+    expect(detector.activeUserIds, isEmpty);
+  });
+
+  test('목록에서 사라지면 activeUserIds에서 제거된다', () {
+    final detector = makeDetector();
+
+    detector.update(me, [userAt('A', 10)]);
+    expect(detector.activeUserIds, {'A'});
+
+    // A가 목록에서 사라짐 → 활성 집합에서 빠진다.
+    detector.update(me, const <NearbyUser>[]);
+    expect(detector.activeUserIds, isEmpty);
+  });
+
+  test('타인끼리 조우도 activeUserIds에 두 id가 모두 담긴다', () {
+    final detector = makeDetector();
+
+    // A(100m)·B(110m)는 나와는 멀지만 서로는 10m라 A↔B 쌍이 활성이다.
+    detector.update(me, [userAt('A', 100), userAt('B', 110)]);
+
+    expect(detector.activeUserIds, containsAll(<String>{'A', 'B'}));
+  });
+
   test('enterRadius >= exitRadius이면 생성 시 assert로 막는다', () {
     expect(
       () => EncounterDetector(enterRadius: 40, exitRadius: 15),
