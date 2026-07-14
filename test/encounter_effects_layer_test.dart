@@ -20,6 +20,12 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    // 기준선 소진: 최초 update는 이벤트를 내지 않는 기준선이므로, 진입 반경(60m)
+    // 밖 배치를 먼저 흘린다. 실제 진입은 다음 방출에서 관측한다.
+    nearby.add([userAt('A', 200)]);
+    await tester.pump();
+    await tester.pump();
+
     // 진입 반경 이내(10m ≤ 15m)로 들어오면 나↔A 조우 1건이 성립한다.
     nearby.add([userAt('A', 10)]);
     await tester.pump();
@@ -47,6 +53,12 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    // 기준선 소진: 최초 update는 이벤트를 내지 않는 기준선이므로, 진입 반경(60m)
+    // 밖 배치를 먼저 흘린다. 실제 진입은 다음 방출에서 관측한다.
+    nearby.add([userAt('A', 200)]);
+    await tester.pump();
+    await tester.pump();
+
     nearby.add([userAt('A', 10)]);
     await tester.pump();
     await tester.pump();
@@ -68,6 +80,12 @@ void main() {
       FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
       nearbyStream: nearby.stream,
     );
+    await tester.pump();
+    await tester.pump();
+
+    // 기준선 소진: 서로도 나와도 진입 반경(60m) 밖인 배치를 먼저 흘려 기준선을
+    // 소비한다(A↔B 400m). 실제 3건 동시 진입은 다음 방출에서 관측한다.
+    nearby.add([userAt('A', 200), userAt('B', 600)]);
     await tester.pump();
     await tester.pump();
 

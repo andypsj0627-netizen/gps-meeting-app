@@ -98,6 +98,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
+  /// 현재 중심을 유지한 채 줌만 [delta]만큼 바꾼다.
+  ///
+  /// [MapOptions.minZoom]/[maxZoom]이 카메라를 범위 안에 가두므로 별도 clamp가
+  /// 필요 없다. 프로그래매틱 이동이라 follow 모드도 해제되지 않는다.
+  void _zoomBy(double delta) {
+    _mapController.move(
+      _mapController.camera.center,
+      _mapController.camera.zoom + delta,
+    );
+  }
+
   /// 사용자 제스처를 감지하면 follow를 해제한다.
   void _onMapEvent(MapEvent event) {
     if (_following && _userGestureSources.contains(event.source)) {
@@ -203,12 +214,36 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
         ],
       ),
+      // FAB이 여러 개일 때는 heroTag가 겹치면 안 되므로 각각 지정한다.
       floatingActionButton: phase == _MapPhase.data
-          ? FloatingActionButton(
-              key: const ValueKey('follow_button'),
-              onPressed: _startFollowing,
-              tooltip: '내 위치로 이동',
-              child: const Icon(Icons.my_location),
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FloatingActionButton.small(
+                  key: const ValueKey('zoom_in_button'),
+                  heroTag: 'zoom_in',
+                  onPressed: () => _zoomBy(1),
+                  tooltip: '확대',
+                  child: const Icon(Icons.add),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.small(
+                  key: const ValueKey('zoom_out_button'),
+                  heroTag: 'zoom_out',
+                  onPressed: () => _zoomBy(-1),
+                  tooltip: '축소',
+                  child: const Icon(Icons.remove),
+                ),
+                const SizedBox(height: 16),
+                FloatingActionButton(
+                  key: const ValueKey('follow_button'),
+                  heroTag: 'follow',
+                  onPressed: _startFollowing,
+                  tooltip: '내 위치로 이동',
+                  child: const Icon(Icons.my_location),
+                ),
+              ],
             )
           : null,
       body: switch (phase) {
@@ -344,6 +379,8 @@ class _MapView extends StatelessWidget {
       options: MapOptions(
         initialCenter: initialCenter,
         initialZoom: AppConstants.initialZoom,
+        minZoom: AppConstants.minZoom,
+        maxZoom: AppConstants.maxZoom,
         onMapEvent: onMapEvent,
       ),
       children: [
@@ -454,14 +491,30 @@ class _NearbyUserMarker extends StatelessWidget {
     Color(0xFF1E88E5), // blue
     Color(0xFF8E24AA), // purple
     Color(0xFFFB8C00), // orange
+    Color(0xFF00ACC1), // cyan
+    Color(0xFFD81B60), // pink
+    Color(0xFF7CB342), // light green
+    Color(0xFF5E35B1), // deep purple
+    Color(0xFF6D4C41), // brown
   ];
+
+  /// 플랫폼 간 일관된 색 선택을 위한 안정 해시. String.hashCode는 웹(dart2js)과
+  /// VM에서 값이 달라 같은 사용자가 플랫폼별로 다른 색이 되므로, codeUnits 합으로
+  /// 대체한다.
+  static int _stableHash(String s) {
+    var hash = 0;
+    for (final unit in s.codeUnits) {
+      hash = (hash + unit) & 0x7fffffff;
+    }
+    return hash;
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Dart의 % 연산은 항상 음이 아닌 나머지를 반환하므로 hashCode 부호는 무관하다.
+    // _stableHash는 항상 음이 아니고, %로 팔레트 길이 안에서 순환한다.
     // 미해금 사용자는 회색(outline)으로 흐리게, 해금 사용자는 고유색으로 강조한다.
     final color = unlocked
-        ? _palette[user.id.hashCode % _palette.length]
+        ? _palette[_stableHash(user.id) % _palette.length]
         : Theme.of(context).colorScheme.outline;
     final initial = user.name.isEmpty ? '?' : user.name.substring(0, 1);
     return CircleAvatar(

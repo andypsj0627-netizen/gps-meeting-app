@@ -48,7 +48,6 @@ void main() {
 
       final loaded = await container.read(userProfilesProvider.future);
       expect(loaded, defaultNearbyUsers);
-      expect(loaded.length, 5);
     });
   });
 }

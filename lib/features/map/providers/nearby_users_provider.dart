@@ -13,7 +13,7 @@ import 'location_provider.dart';
 import 'user_profiles_provider.dart';
 
 /// 동시에 시뮬레이션할 가상 사용자 수. Firestore 프로필 상위 이 명수를 쓴다.
-const int _simUserCount = 5;
+const int _simUserCount = 10;
 
 /// 근처 사용자 목록을 스트림으로 제공하는 서비스 추상화.
 ///
@@ -40,7 +40,8 @@ enum _WalkerPhase {
   /// 계산된 폴리라인을 따라 걷는 중.
   walking,
 
-  /// 목적지 도착 후 잠시 쉬는 중. 대기가 끝나면 새 목적지를 뽑는다.
+  /// 대기 중 — 도착 후 휴식(1~3s)이거나 경로 실패 백오프(10~20s). 대기가 끝나면
+  /// 새 목적지를 뽑는다.
   waiting,
 }
 
@@ -55,11 +56,14 @@ enum _WalkerPhase {
 /// 각 인물의 정체성(이름/나이/성별)은 [watchNearbyUsers]에 넘긴 roster에서
 /// 온다 — 즉 Firestore 프로필과 동일한 인물들이 지도 위를 걷는다.
 ///
-/// 경로 계산이 직선 폴백([RouteResult.isFallback])으로 끝났다면 도착 후
-/// 대기를 10~20초로 늘려, 장애 중인 공개 라우팅 서버를 연타하지 않는다.
+/// 경로 계산이 직선 폴백([RouteResult.isFallback])으로 끝났다면 그 직선을
+/// 따라 걷지 않는다(산/건물을 관통하므로). 대신 제자리에서 10~20초 대기한
+/// 뒤 새 목적지를 다시 뽑는다 — 장애 중인 공개 라우팅 서버를 연타하지 않는
+/// 백오프이기도 하다. 트레이드오프: 라우팅이 계속 실패하는 환경(오프라인)
+/// 에서는 마커가 제자리에 머문다. 직선으로 산을 관통하는 것보다 낫다는 판단.
 ///
-/// [random], [tickInterval], [routePlanner], 속도 범위를 주입할 수 있어
-/// 테스트에서 네트워크 없이 결정적으로 동작한다.
+/// [random], [tickInterval], [routePlanner], [initialRequestJitter], 속도 범위를
+/// 주입할 수 있어 테스트에서 네트워크 없이 결정적으로 동작한다.
 class FakeNearbyUsersService implements NearbyUsersService {
   FakeNearbyUsersService({
     Random? random,
@@ -67,6 +71,7 @@ class FakeNearbyUsersService implements NearbyUsersService {
     RoutePlanner? routePlanner,
     this.minSpeed = 1.1,
     this.maxSpeed = 1.5,
+    this.initialRequestJitter = const Duration(seconds: 3),
   })  : _random = random ?? Random(),
         _routePlanner = routePlanner ?? OsrmRoutePlanner();
 
@@ -74,6 +79,11 @@ class FakeNearbyUsersService implements NearbyUsersService {
 
   /// 시뮬레이션 한 스텝(틱)의 주기.
   final Duration tickInterval;
+
+  /// 구독 직후 전원이 동시에 경로를 요청(HTTP 버스트)하는 것을 막기 위한 시작
+  /// 지터. 각 워커는 0~이 값 사이 랜덤 시간을 대기한 뒤 첫 요청을 보낸다.
+  /// [Duration.zero]이면 지터 없이 구독 직후 전원 즉시 요청한다.
+  final Duration initialRequestJitter;
 
   /// 목적지까지의 보행 경로를 계산하는 플래너.
   final RoutePlanner _routePlanner;
@@ -109,6 +119,18 @@ class FakeNearbyUsersService implements NearbyUsersService {
   /// 현재 위치 기준 목적지 선정 최대 거리(m).
   static const double _maxDestinationDistance = 300;
 
+  /// 목적지 도착 후 휴식 시간(ms) 하한.
+  static const int _arriveWaitMinMs = 1000;
+
+  /// 목적지 도착 후 휴식 시간(ms) 상한.
+  static const int _arriveWaitMaxMs = 3000;
+
+  /// 경로 실패(폴백) 시 백오프 대기(ms) 하한. 장애 중인 공개 서버 연타 방지.
+  static const int _routeFailBackoffMinMs = 10000;
+
+  /// 경로 실패(폴백) 시 백오프 대기(ms) 상한.
+  static const int _routeFailBackoffMaxMs = 20000;
+
   @override
   Stream<List<NearbyUser>> watchNearbyUsers(
     LatLng center,
@@ -126,31 +148,46 @@ class FakeNearbyUsersService implements NearbyUsersService {
 
     List<NearbyUser> snapshot() => [for (final w in walkers) w.toModel()];
 
+    /// waiting 페이즈로 전환하고 [minMs]~[maxMs] 사이 랜덤 시간을 대기시킨다.
+    void startWaiting(_WalkingUser w, int minMs, int maxMs) {
+      w.phase = _WalkerPhase.waiting;
+      w.waitRemaining =
+          Duration(milliseconds: minMs + _random.nextInt(maxMs - minMs + 1));
+    }
+
     /// 새 목적지를 뽑고 경로 계산을 시작한다. 응답까지는 제자리 대기.
     void requestRoute(_WalkingUser w) {
       w.phase = _WalkerPhase.requestingRoute;
       final destination = _pickDestination(center, w.position);
       _routePlanner.planRoute(w.position, destination).then((result) {
         if (cancelled) return;
+        // 직선 폴백(경로 계산 실패)이면 그 직선을 걷지 않는다 — 산/건물을
+        // 관통하기 때문이다. 대신 제자리에서 10~20초 대기한 뒤(백오프, 장애
+        // 중인 공개 서버 연타 방지) tick 로직이 requestRoute를 다시 불러 새
+        // 목적지를 뽑는다.
+        if (result.isFallback) {
+          debugPrint(
+            '경로 계산 실패(폴백) — ${w.profile.id} 제자리 대기 후 재시도',
+          );
+          // ponytail: 라우팅 지속 실패 시 마커 제자리 정지 — 실패를 UI에 노출하거나 로컬 폴백 경로 도입 시 업그레이드
+          startWaiting(w, _routeFailBackoffMinMs, _routeFailBackoffMaxMs);
+          return;
+        }
         // 플래너 계약상 최소 [from, to]가 오지만, 방어적으로 한 번 더 보정한다.
+        // OSRM은 from을 도로에 스냅하므로 route[0]이 현 위치에서 떨어져 있을 수
+        // 있다. 현 위치를 route 맨 앞에 접합해 advance가 첫 세그먼트(현위치→스냅점)를
+        // 실제로 걷게 한다. 길이 0 첫 세그먼트는 advance의 이월 로직이 안전히 통과한다.
         w.route = result.points.length >= 2
-            ? result.points
+            ? [w.position, ...result.points]
             : [w.position, destination];
-        w.routeWasFallback = result.isFallback;
         w.segmentIndex = 0;
         w.phase = _WalkerPhase.walking;
       });
     }
 
-    /// 도착 처리: 랜덤 대기 상태로 전환한다.
-    ///
-    /// 정상 경로였다면 1~3초, 직선 폴백(경로 계산 실패)이었다면 10~20초 대기해
-    /// 실패 중인 라우팅 서버에 대한 재요청 빈도를 낮춘다(백오프).
+    /// 도착 처리: 1~3초 대기 상태로 전환한다.
     void arrive(_WalkingUser w) {
-      w.phase = _WalkerPhase.waiting;
-      w.waitRemaining = w.routeWasFallback
-          ? Duration(milliseconds: 10000 + _random.nextInt(10001))
-          : Duration(milliseconds: 1000 + _random.nextInt(2001));
+      startWaiting(w, _arriveWaitMinMs, _arriveWaitMaxMs);
     }
 
     /// 폴리라인을 따라 정확히 속도×틱시간 만큼 전진한다(세그먼트 경계 이월 포함).
@@ -211,8 +248,19 @@ class FakeNearbyUsersService implements NearbyUsersService {
         walkers = _spawn(center, roster);
         // 첫 방출: 초기 배치 상태를 즉시 내보내고, 곧바로 경로 계산을 시작한다.
         emitIfChanged();
-        for (final w in walkers) {
-          requestRoute(w);
+        final jitterMs = initialRequestJitter.inMilliseconds;
+        if (jitterMs == 0) {
+          // 지터 없음: 기존 동작 유지(즉시 전원 요청). 테스트 결정성 보장.
+          for (final w in walkers) {
+            requestRoute(w);
+          }
+        } else {
+          // 각 워커를 0~jitter 랜덤 대기로 시작시켜, tick 로직이 요청을 시차 발사.
+          for (final w in walkers) {
+            w.phase = _WalkerPhase.waiting;
+            w.waitRemaining =
+                Duration(milliseconds: _random.nextInt(jitterMs + 1));
+          }
         }
         timer = Timer.periodic(tickInterval, (_) => tick());
       },
@@ -287,10 +335,6 @@ class _WalkingUser {
 
   /// 현재 걷는 폴리라인. walking 단계에서만 non-null.
   List<LatLng>? route;
-
-  /// 현재 [route]가 경로 계산 실패로 인한 직선 폴백인지 여부.
-  /// 도착 후 대기 시간(백오프) 결정에 사용한다.
-  bool routeWasFallback = false;
 
   /// [route]에서 현재 걷고 있는 세그먼트의 시작 인덱스.
   int segmentIndex = 0;

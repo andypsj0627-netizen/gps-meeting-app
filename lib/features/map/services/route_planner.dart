@@ -8,11 +8,16 @@ import '../../../core/constants/app_constants.dart';
 /// 경로 계산 결과.
 ///
 /// [isFallback]으로 "실제 도로 경로"와 "실패 시 직선 폴백"을 구분한다.
-/// 호출 측은 폴백일 때 재요청 백오프를 늘리는 등 다르게 대응할 수 있다.
+/// [isFallback]이 true이면 [points]의 직선은 걷기 위한 경로가 아니라 실패
+/// 신호다. 호출 측은 이 직선을 따라 걷지 않고(직선은 건물/산을 관통하므로)
+/// 백오프를 조정한 뒤 다르게 대응한다.
 class RouteResult {
   const RouteResult({required this.points, this.isFallback = false});
 
   /// 경로 폴리라인(경유점 목록). 항상 2개 이상이어야 한다.
+  ///
+  /// [isFallback]이 true이면 이 값은 `[from, to]` 직선이며, 걷기 위한 경로가
+  /// 아니라 실패를 알리는 신호로만 쓴다.
   final List<LatLng> points;
 
   /// 실패로 인해 직선 폴백 경로가 반환되었는지 여부.
@@ -28,16 +33,19 @@ abstract class RoutePlanner {
   /// [from]에서 [to]까지의 경로를 계산한다.
   ///
   /// 구현체는 실패 시 예외를 던지지 말고 직선 경로 `[from, to]`에
-  /// `isFallback: true`를 담아 반환해야 한다. 시뮬레이션이 경로 계산 실패로
-  /// 멈추면 안 되기 때문이다.
+  /// `isFallback: true`를 담아 반환해야 한다. 예외를 던지면 worker가
+  /// requestingRoute 상태에서 영영 멈추기 때문이다.
+  ///
+  /// 이 폴백 폴리라인은 예외 없이 실패를 알리는 신호 수단일 뿐, 따라 걷는
+  /// 경로가 아니다. 이후 처리는 호출 측이 결정한다(현재: 백오프 후 재선택).
   Future<RouteResult> planRoute(LatLng from, LatLng to);
 }
 
-/// OSRM 공개 데모 서버를 호출하는 [RoutePlanner] 구현체.
+/// OSRM 공개 서버(FOSSGIS 보행자 프로필)를 호출하는 [RoutePlanner] 구현체.
 ///
-/// **한계**: 데모 서버(router.project-osrm.org)는 실제로는 car 프로필만
-/// 호스팅하며 URL의 `foot` 세그먼트는 무시될 수 있다. 그래도 도로망을 따라가는
-/// 경로가 반환되므로 "길을 따라 걷는" 시뮬레이션 목적에는 충분하다.
+/// 인도/산책로를 따르는 실제 보행 경로를 반환한다. 과거 사용하던
+/// router.project-osrm.org 데모는 car 프로필만 호스팅해 마커가 자동차용
+/// 터널로 산을 통과하는 문제가 있었다.
 ///
 /// 네트워크 오류, 타임아웃, 비정상 응답, 빈 경로 등 어떤 실패가 발생해도
 /// 예외 대신 직선 폴백(`isFallback: true`)을 반환한다.

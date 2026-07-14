@@ -25,6 +25,10 @@ class _FakeRoutePlanner implements RoutePlanner {
   /// true면 결과를 직선 폴백([RouteResult.isFallback])으로 표시한다.
   bool isFallback = false;
 
+  /// 지정 시, 처음 이 횟수만큼의 호출은 폴백으로 표시하고 이후는 정상으로
+  /// 표시한다([isFallback]보다 우선). "폴백 후 정상 회복" 시나리오 검증용.
+  int? fallbackUntilCall;
+
   /// [planRoute] 호출 횟수. "도착 후 새 경로 요청" 검증에 사용한다.
   int callCount = 0;
 
@@ -35,9 +39,12 @@ class _FakeRoutePlanner implements RoutePlanner {
   Future<RouteResult> planRoute(LatLng from, LatLng to) async {
     callCount++;
     requests.add((from: from, to: to));
+    final fallback = fallbackUntilCall != null
+        ? callCount <= fallbackUntilCall!
+        : isFallback;
     return RouteResult(
       points: _builder?.call(from, to) ?? [from, to],
-      isFallback: isFallback,
+      isFallback: fallback,
     );
   }
 }
@@ -72,19 +79,19 @@ void main() {
   }
 
   group('FakeNearbyUsersService', () {
-    test('첫 방출은 roster 5명이며 모두 center 100~300m 반경에 있다', () {
+    test('첫 방출은 roster 전원이며 모두 center 100~300m 반경에 있다', () {
       fakeAsync((async) {
         final service = FakeNearbyUsersService(
           random: Random(42),
           tickInterval: _tick,
           routePlanner: _FakeRoutePlanner(),
+          initialRequestJitter: Duration.zero,
         );
 
         final emissions = collect(async, service, Duration.zero);
 
         expect(emissions, isNotEmpty);
         final first = emissions.first;
-        expect(first.length, 5);
         expect(
           first.map((u) => u.name).toList(),
           _roster.map((u) => u.name).toList(),
@@ -110,6 +117,7 @@ void main() {
           routePlanner: _FakeRoutePlanner(),
           minSpeed: speed,
           maxSpeed: speed,
+          initialRequestJitter: Duration.zero,
         );
 
         // 초기 배치 + 5틱 = 6개 스냅샷. 경로 요청은 구독 직후 시작되어
@@ -144,6 +152,7 @@ void main() {
           }),
           minSpeed: speed,
           maxSpeed: speed,
+          initialRequestJitter: Duration.zero,
         );
 
         final emissions = collect(async, service, _tick);
@@ -162,6 +171,41 @@ void main() {
       });
     });
 
+    test('경로 시작점이 현 위치에서 떨어져 있어도 스냅점을 경유해 걷는다(순간이동 없음)', () {
+      fakeAsync((async) {
+        const speed = 1.2; // 틱당 0.36m.
+        // OSRM 스냅 시뮬레이션: 경로가 현 위치에서 동쪽 0.2m 떨어진 점(p0)에서
+        // 시작해 p0 북쪽 30m로 이어진다. 접합이 없으면 advance가 p0을 건너뛰고
+        // 직선 관통하지만, 접합([현위치, ...points]) 덕에 현위치→p0→북쪽 순으로 걷는다.
+        final planner = _FakeRoutePlanner((from, to) {
+          final p0 = distance.offset(from, 0.2, 90); // 현 위치에서 동쪽 0.2m(스냅점).
+          return [p0, distance.offset(p0, 30, 0)];
+        });
+        final service = FakeNearbyUsersService(
+          random: Random(42),
+          tickInterval: _tick,
+          routePlanner: planner,
+          minSpeed: speed,
+          maxSpeed: speed,
+          initialRequestJitter: Duration.zero,
+        );
+
+        final emissions = collect(async, service, _tick);
+        expect(emissions.length, 2);
+
+        // 첫 사용자로 검증: 스폰 위치 기준 스냅점(동쪽 0.2m)을 경유했는지 확인.
+        final start = emissions[0][0].position;
+        final afterTick = emissions[1][0].position;
+        final p0 = distance.offset(start, 0.2, 90);
+
+        // 한 틱(0.36m): 동쪽 0.2m(스냅점 도달) 후 남은 0.16m를 북쪽으로 걷는다.
+        expect(distance.distance(p0, afterTick), closeTo(0.16, 0.02));
+        // 직선 관통이었다면 시작점에서 0.36m 지점이지만, 굽은 경로라 더 가깝다.
+        // sqrt(0.2^2 + 0.16^2) ≈ 0.256m.
+        expect(distance.distance(start, afterTick), closeTo(0.256, 0.02));
+      });
+    });
+
     test('도착 후 1~3초 대기하고 새 경로를 요청한다', () {
       fakeAsync((async) {
         const speed = 1.2; // 틱당 0.36m.
@@ -175,33 +219,35 @@ void main() {
           routePlanner: planner,
           minSpeed: speed,
           maxSpeed: speed,
+          initialRequestJitter: Duration.zero,
         );
 
         final sub =
             service.watchNearbyUsers(center, _roster).listen((_) {});
 
-        // 구독 직후: 5명 각각 최초 경로 요청.
+        // 구독 직후: 전원 각각 최초 경로 요청.
         async.flushMicrotasks();
-        expect(planner.callCount, 5);
+        expect(planner.callCount, _roster.length);
 
         // 도착(3틱 ≈ 0.9s) 전까지는 새 요청이 없다.
         async.elapse(_tick * 3);
-        expect(planner.callCount, 5);
+        expect(planner.callCount, _roster.length);
 
-        // 최대 대기(3s)까지 진행하면 전원(5명)이 새 경로를 요청했어야 한다.
+        // 최대 대기(3s)까지 진행하면 전원이 새 경로를 요청했어야 한다.
         // (그 사이 두 번째 도착/재요청 사이클이 시작됐을 수 있어 하한으로 검증.)
         async.elapse(const Duration(seconds: 3) + _tick);
-        expect(planner.callCount, greaterThanOrEqualTo(10));
+        expect(planner.callCount, greaterThanOrEqualTo(_roster.length * 2));
 
         sub.cancel();
         async.flushMicrotasks();
       });
     });
 
-    test('직선 폴백 경로로 도착하면 10~20초 백오프 후에 새 경로를 요청한다', () {
+    test('폴백이면 걷지 않고 제자리에서 10~20초 대기 후 새 경로를 재요청한다', () {
       fakeAsync((async) {
         const speed = 1.2; // 틱당 0.36m.
-        // 항상 폴백으로 표시되는 1m짜리 경로 → 3틱째(≈0.9s)에 도착한다.
+        // 항상 폴백으로 표시되는 1m짜리 경로. 걷는다면 3틱째(≈0.9s)에 도착하겠지만,
+        // 폴백이므로 걷지 않고 스폰 위치에 머물러야 한다.
         final planner = _FakeRoutePlanner(
           (from, to) => [from, distance.offset(from, 1, 0)],
         )..isFallback = true;
@@ -211,21 +257,66 @@ void main() {
           routePlanner: planner,
           minSpeed: speed,
           maxSpeed: speed,
+          initialRequestJitter: Duration.zero,
         );
 
+        final emissions = <List<NearbyUser>>[];
         final sub =
-            service.watchNearbyUsers(center, _roster).listen((_) {});
+            service.watchNearbyUsers(center, _roster).listen(emissions.add);
         async.flushMicrotasks();
-        expect(planner.callCount, 5);
+        expect(planner.callCount, _roster.length);
 
-        // 최소 백오프(10s)가 끝나기 전(도착 0.9s + 10s = 10.9s)에는
-        // 재요청이 없어야 한다 — 1~3초 대기였다면 이미 여러 번 재요청했을 시간.
+        // 스폰 위치(첫 방출)를 기록해 둔다.
+        final spawn = {for (final u in emissions.first) u.id: u.position};
+
+        // 걷지 않으므로, 최소 백오프(10s)가 끝나기 전에는 재요청이 없고
+        // 위치도 스폰 그대로여야 한다.
         async.elapse(const Duration(seconds: 10));
-        expect(planner.callCount, 5);
+        expect(planner.callCount, _roster.length);
+        for (final u in emissions.last) {
+          expect(u.position, spawn[u.id]); // 제자리 유지.
+        }
 
-        // 최대 백오프(20s)를 지나면 전원이 새 경로를 요청했어야 한다.
+        // 최대 백오프(20s)를 지나면 전원이 새 경로를 재요청했어야 한다.
         async.elapse(const Duration(seconds: 12));
-        expect(planner.callCount, greaterThanOrEqualTo(10));
+        expect(planner.callCount, greaterThanOrEqualTo(_roster.length * 2));
+
+        sub.cancel();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('폴백 후 재시도에서 정상 경로를 받으면 걷기 시작한다', () {
+      fakeAsync((async) {
+        const speed = 1.2; // 틱당 0.36m.
+        // 첫 라운드(전원 1회)는 폴백(걷지 않음), 이후 재요청부터 정상 경로(걷기 시작).
+        final planner = _FakeRoutePlanner(
+          (from, to) => [from, distance.offset(from, 30, 0)],
+        )..fallbackUntilCall = _roster.length;
+        final service = FakeNearbyUsersService(
+          random: Random(42),
+          tickInterval: _tick,
+          routePlanner: planner,
+          minSpeed: speed,
+          maxSpeed: speed,
+          initialRequestJitter: Duration.zero,
+        );
+
+        final emissions = <List<NearbyUser>>[];
+        final sub =
+            service.watchNearbyUsers(center, _roster).listen(emissions.add);
+        async.flushMicrotasks();
+        expect(planner.callCount, _roster.length); // 첫 라운드는 전원 폴백.
+
+        final spawn = {for (final u in emissions.first) u.id: u.position};
+
+        // 백오프(10~20초)가 끝나면 재요청 → 이번엔 정상 경로 → 걷기 시작.
+        async.elapse(const Duration(seconds: 21));
+        expect(planner.callCount, greaterThanOrEqualTo(_roster.length * 2));
+        // 정상 경로로 걷기 시작했으므로 스폰 위치에서 벗어나 있어야 한다.
+        for (final u in emissions.last) {
+          expect(u.position, isNot(spawn[u.id]));
+        }
 
         sub.cancel();
         async.flushMicrotasks();
@@ -247,6 +338,7 @@ void main() {
           routePlanner: planner,
           minSpeed: 1.2,
           maxSpeed: 1.2,
+          initialRequestJitter: Duration.zero,
         );
 
         final sub =
@@ -277,6 +369,7 @@ void main() {
           random: Random(1),
           tickInterval: _tick,
           routePlanner: _FakeRoutePlanner(),
+          initialRequestJitter: Duration.zero,
         );
 
         final received = <List<NearbyUser>>[];
@@ -291,6 +384,27 @@ void main() {
         // 취소 이후 충분히 시간이 흘러도 방출 수가 늘지 않는다.
         async.elapse(_tick * 10);
         expect(received.length, countAfterCancel);
+      });
+    });
+
+    test('기본 시작 지터(3s) 동안은 요청이 없고, 지터+틱 경과 후 전원이 요청한다', () {
+      fakeAsync((async) {
+        final planner = _FakeRoutePlanner();
+        final service = FakeNearbyUsersService(
+          random: Random(42),
+          tickInterval: _tick,
+          routePlanner: planner,
+          // initialRequestJitter 미지정 → 기본 3초.
+        );
+        final sub = service.watchNearbyUsers(center, _roster).listen((_) {});
+        // 구독 직후에는 지터 대기 중이라 아무도 요청하지 않는다.
+        async.flushMicrotasks();
+        expect(planner.callCount, 0);
+        // 최대 지터(3s) + 한 틱을 지나면 전원이 요청했어야 한다.
+        async.elapse(const Duration(seconds: 3) + _tick);
+        expect(planner.callCount, _roster.length);
+        sub.cancel();
+        async.flushMicrotasks();
       });
     });
   });

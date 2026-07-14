@@ -103,6 +103,12 @@ void main() {
     positions.add(fakePosition(center.latitude, center.longitude));
     await settle();
 
+    // 기준선 소진: 첫 update는 이벤트를 내지 않는 기준선이므로, 서로도 나와도
+    // 진입 반경 밖인 배치를 먼저 흘려 기준선을 소비한다.
+    nearby.add([userAt('A', 100), userAt('B', 500)]);
+    await settle();
+    expect(ctx.batches, isEmpty);
+
     // 같은 방출에 A(10m)·B(12m)를 배치한다. userAt은 정북 일렬 배치라 A↔B도
     // 서로 2m 거리로 진입하므로, 나↔A·나↔B에 타인끼리 쌍까지 총 3건이 성립한다.
     nearby.add([userAt('A', 10), userAt('B', 12)]);

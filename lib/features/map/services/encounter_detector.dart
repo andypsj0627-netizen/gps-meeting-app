@@ -16,6 +16,10 @@ import '../models/nearby_user.dart';
 /// 히스테리시스를 구현한다. 경계선 부근에서 참가자가 미세하게 움직여도 진입/이탈이
 /// 반복되며 알림이 연쇄로 터지지 않는다. 한 번 조우한 쌍은 [exitRadius] 밖으로
 /// 충분히 멀어져 상태가 해제된 뒤 다시 [enterRadius] 안으로 들어와야 재발생한다.
+///
+/// 최초 [update] 호출은 "기준선"이다. 스폰/지도 진입 시점에 이미 [enterRadius]
+/// 안에 있던 쌍은 활성 집합에 등록만 하고 이벤트는 내지 않는다. 두 번째 호출부터는
+/// 새로 진입한 쌍이 이벤트로 이어진다.
 class EncounterDetector {
   EncounterDetector({
     this.enterRadius = AppConstants.encounterEnterRadius,
@@ -51,6 +55,13 @@ class EncounterDetector {
   /// 밖으로 벌어지기 전까지 이벤트를 재발생시키지 않는다.
   final Set<String> _active = <String>{};
 
+  /// 최초 [update] 호출(기준선)을 이미 소진했는지 여부.
+  ///
+  /// 첫 호출은 활성 집합만 시드하고 이벤트는 내지 않는다. 지도 진입 직후 스폰
+  /// 시점에 이미 가까웠던 쌍들이 스낵바/펄스를 쏟아내지 않게 하려는 것이다.
+  /// 두 번째 호출부터 true가 되어 새 진입이 이벤트로 이어진다.
+  bool _baselineDone = false;
+
   /// 두 id를 정렬해 무순서 쌍의 정규화 키를 만든다. (a,b)와 (b,a)가 같은 키다.
   static String _pairKey(String x, String y) =>
       x.compareTo(y) <= 0 ? '$x|$y' : '$y|$x';
@@ -62,6 +73,9 @@ class EncounterDetector {
   /// - 조우 중이 아닌 쌍이 [enterRadius] 이내 → 이벤트 생성 + 집합에 추가
   /// - 조우 중인 쌍이 [exitRadius] 이상 → 집합에서 제거(이벤트 없음)
   /// - 어느 한쪽이라도 이번 목록에 없는 쌍 → 집합에서 제거(사라진 쌍 상태 초기화)
+  ///
+  /// 단, 최초 호출은 기준선이라 [enterRadius] 이내 쌍을 활성 집합에 등록만 하고
+  /// 이벤트는 반환하지 않는다. 두 번째 호출부터 진입이 이벤트로 이어진다.
   List<EncounterEvent> update(LatLng myPosition, List<NearbyUser> users) {
     // 나도 하나의 참가자로 만들어 쌍 판정에 포함시킨다.
     final participants = <NearbyUser>[
@@ -85,17 +99,22 @@ class EncounterDetector {
             _active.remove(key);
           }
         } else {
-          // 조우 중이 아닌 쌍 — 진입 반경 안으로 들어오면 이벤트를 발생시킨다.
+          // 조우 중이 아닌 쌍 — 진입 반경 안으로 들어오면 활성 집합에 등록한다.
           if (distance <= enterRadius) {
             _active.add(key);
-            events.add(
-              EncounterEvent(
-                a: a,
-                b: b,
-                distanceMeters: distance,
-                timestamp: _now(),
-              ),
-            );
+            // 최초 update(스폰 기준선)에서는 활성 등록만 하고 이벤트는 내지 않는다.
+            // 지도 진입 직후 이미 가까웠던 쌍이 스낵바/펄스를 쏟아내지 않게 한다.
+            // 색 해금(activeUserIds)은 활성 집합에서 파생하므로 그대로 동작한다.
+            if (_baselineDone) {
+              events.add(
+                EncounterEvent(
+                  a: a,
+                  b: b,
+                  distanceMeters: distance,
+                  timestamp: _now(),
+                ),
+              );
+            }
           }
         }
       }
@@ -104,6 +123,9 @@ class EncounterDetector {
     // 어느 한쪽이라도 이번 목록에서 사라진 쌍은 상태를 초기화한다. 다시 나타나
     // 진입 반경 안으로 들어오면 새 이벤트로 취급된다.
     _active.removeWhere((key) => !presentKeys.contains(key));
+
+    // 첫 호출을 기준선으로 소진한다. 이후 호출부터는 진입이 이벤트로 이어진다.
+    _baselineDone = true;
 
     return events;
   }

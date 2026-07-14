@@ -10,6 +10,12 @@ class AppConstants {
   /// 지도 초기 줌 레벨.
   static const double initialZoom = 16;
 
+  /// 지도 최소 줌 레벨. 카메라 이동(버튼/스크롤/핀치)이 이 아래로 내려가지 않는다.
+  static const double minZoom = 3;
+
+  /// 지도 최대 줌 레벨. OSM 타일이 제공되는 상한(19)에 맞춘다.
+  static const double maxZoom = 19;
+
   /// OSM 타일 정책상 요구되는 User-Agent 패키지명.
   static const String userAgentPackageName = 'com.example.gps_meeting_app';
 
@@ -17,9 +23,14 @@ class AppConstants {
   static const String osmTileUrl =
       'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-  /// OSRM 공개 데모 서버의 라우팅 엔드포인트 (foot 프로필).
+  /// OSRM 공개 서버의 라우팅 엔드포인트 (보행자 프로필).
+  ///
+  /// router.project-osrm.org 데모는 자동차 프로필만 호스팅해 URL의 foot이
+  /// 무시된다(마커가 터널로 산을 통과하는 원인이었음). FOSSGIS 인스턴스는
+  /// 실제 보행자 프로필을 제공한다 — 경로 세그먼트(/routed-foot/)가 프로필을
+  /// 결정하고 뒤의 /foot은 형식상 자리표시자다.
   static const String osrmRouteBaseUrl =
-      'https://router.project-osrm.org/route/v1/foot';
+      'https://routing.openstreetmap.de/routed-foot/route/v1/foot';
 
   /// 가상 사용자 시뮬레이션 속도 배율.
   ///

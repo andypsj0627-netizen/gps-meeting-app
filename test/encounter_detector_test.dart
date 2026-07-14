@@ -27,6 +27,8 @@ void main() {
     final detector = makeDetector(fixedNow: now);
     final user = userAt('A', 10); // 15m 이내.
 
+    // 첫 update는 기준선이라 이벤트를 내지 않으므로, 빈 목록으로 소진한다.
+    detector.update(me, const <NearbyUser>[]);
     final events = detector.update(me, [user]);
 
     expect(events, hasLength(1));
@@ -47,9 +49,30 @@ void main() {
     expect(events, isEmpty);
   });
 
+  test('최초 update는 기준선 — 반경 내 쌍이라도 이벤트 0건이지만 activeUserIds에는 포함된다', () {
+    final detector = makeDetector();
+    // 스폰 직후 이미 진입 반경 안(10m)에 있어도 첫 update는 이벤트를 내지 않는다.
+    final events = detector.update(me, [userAt('A', 10)]);
+    expect(events, isEmpty);
+    // 그러나 활성 집합에는 등록되어 색 해금은 이뤄진다.
+    expect(detector.activeUserIds, {'A'});
+  });
+
+  test('기준선 이후 새로 진입한 쌍은 이벤트가 발생한다', () {
+    final detector = makeDetector();
+    // 첫 update(기준선): A는 반경 밖.
+    expect(detector.update(me, [userAt('A', 100)]), isEmpty);
+    // 두 번째 update: A가 진입 반경 안(10m)으로 새로 들어옴 → 이벤트 발생.
+    final events = detector.update(me, [userAt('A', 10)]);
+    expect(events, hasLength(1));
+    expect(events.single.partner.id, 'A');
+  });
+
   test('이미 조우 중인 쌍은 enterRadius 이내라도 재발생하지 않는다', () {
     final detector = makeDetector();
 
+    // 기준선 소진(빈 목록).
+    detector.update(me, const <NearbyUser>[]);
     // 첫 진입 → 이벤트 1회.
     expect(detector.update(me, [userAt('A', 10)]), hasLength(1));
     // 여전히 진입 반경 안 → 재발생 없음.
@@ -60,6 +83,8 @@ void main() {
   test('exitRadius 미만(20~39m)으로 벗어나도 상태를 유지해 재진입해도 이벤트가 없다', () {
     final detector = makeDetector();
 
+    // 기준선 소진(빈 목록).
+    detector.update(me, const <NearbyUser>[]);
     expect(detector.update(me, [userAt('A', 10)]), hasLength(1));
     // 20~39m: enterRadius 밖이지만 exitRadius(40m) 미만 → 여전히 조우 상태.
     expect(detector.update(me, [userAt('A', 25)]), isEmpty);
@@ -71,6 +96,8 @@ void main() {
   test('exitRadius 이상 이탈 후 재진입하면 이벤트가 재발생한다', () {
     final detector = makeDetector();
 
+    // 기준선 소진(빈 목록).
+    detector.update(me, const <NearbyUser>[]);
     expect(detector.update(me, [userAt('A', 10)]), hasLength(1));
     // exitRadius(40m) 이상 이탈 → 상태 해제(이벤트 없음).
     expect(detector.update(me, [userAt('A', 45)]), isEmpty);
@@ -81,6 +108,8 @@ void main() {
   test('목록에서 사라졌다 다시 나타나 enterRadius 이내면 이벤트가 발생한다', () {
     final detector = makeDetector();
 
+    // 기준선 소진(빈 목록).
+    detector.update(me, const <NearbyUser>[]);
     expect(detector.update(me, [userAt('A', 10)]), hasLength(1));
     // A가 목록에서 사라짐 → 상태 초기화(이벤트 없음).
     expect(detector.update(me, const <NearbyUser>[]), isEmpty);
@@ -91,6 +120,8 @@ void main() {
   test('동시에 여러 쌍이 진입하면 각 쌍마다 이벤트가 발생한다', () {
     final detector = makeDetector();
 
+    // 기준선 소진(빈 목록).
+    detector.update(me, const <NearbyUser>[]);
     // userAt은 전부 정북 방향 일렬로 배치하므로 A(5m)·B(12m)는 서로 7m 거리다.
     // 따라서 나↔A, 나↔B에 더해 타인끼리 쌍 A↔B도 함께 성립한다.
     final events = detector.update(me, [
@@ -109,6 +140,8 @@ void main() {
   test('나와 멀어도 타인끼리 enterRadius 이내면 쌍 이벤트가 발생한다', () {
     final detector = makeDetector();
 
+    // 기준선 소진(빈 목록).
+    detector.update(me, const <NearbyUser>[]);
     // A(100m)·B(110m)는 나와는 멀지만 서로는 10m 거리다(정북 일렬 배치).
     final events = detector.update(me, [userAt('A', 100), userAt('B', 110)]);
 
@@ -124,6 +157,8 @@ void main() {
   test('타인끼리 쌍도 exitRadius 미만으로 유지되는 동안 재발생하지 않는다', () {
     final detector = makeDetector();
 
+    // 기준선 소진(빈 목록).
+    detector.update(me, const <NearbyUser>[]);
     // A↔B 10m → 쌍 이벤트 1회. (나와는 계속 100m 이상이라 무관하다.)
     expect(
       detector.update(me, [userAt('A', 100), userAt('B', 110)]),
@@ -154,6 +189,8 @@ void main() {
   test('한쪽이 목록에서 사라지면 쌍 상태가 해제되어 재등장 시 이벤트가 재발생한다', () {
     final detector = makeDetector();
 
+    // 기준선 소진(빈 목록).
+    detector.update(me, const <NearbyUser>[]);
     expect(
       detector.update(me, [userAt('A', 100), userAt('B', 110)]),
       hasLength(1),

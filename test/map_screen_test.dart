@@ -258,6 +258,12 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    // 기준선 소진: 최초 update는 이벤트를 내지 않는 기준선이므로, 서로도 나와도
+    // 진입 반경(60m) 밖인 배치(A↔B 400m)를 먼저 흘린다.
+    nearby.add([userAt('A', 200), userAt('B', 600)]);
+    await tester.pump();
+    await tester.pump();
+
     // 같은 방출에 A(10m)·B(12m)를 배치한다. userAt은 정북 일렬 배치라 A↔B도
     // 서로 2m 거리로 진입하므로, 나↔A·나↔B·A↔B 총 3건이 한 배치로 온다.
     nearby.add([userAt('A', 10), userAt('B', 12)]);
@@ -285,6 +291,12 @@ void main() {
       FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
       nearbyStream: nearby.stream,
     );
+    await tester.pump();
+    await tester.pump();
+
+    // 기준선 소진: A↔B도 진입 반경(60m) 밖(400m)인 배치를 먼저 흘려 기준선을
+    // 소비한다. 실제 A↔B 진입은 다음 방출에서 관측한다.
+    nearby.add([userAt('A', 200), userAt('B', 600)]);
     await tester.pump();
     await tester.pump();
 
@@ -363,6 +375,11 @@ void main() {
     await tester.pump();
     expect(find.byType(FlutterMap), findsOneWidget);
 
+    // 기준선 소진: 진입 반경(60m) 밖 배치를 먼저 흘린다. 실제 진입은 다음 방출에서.
+    nearby.add([userAt('A', 200)]);
+    await tester.pump();
+    await tester.pump();
+
     // 지도 복귀 후 사용자가 진입 반경 이내(10m)로 들어오면 조우 스낵바가 발생한다.
     nearby.add([userAt('A', 10)]);
     await tester.pump();
@@ -376,5 +393,82 @@ void main() {
       find.text('A님과 10m 거리에서 만났어요!'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('확대 버튼을 탭하면 줌이 1 증가한다', (tester) async {
+    await _pumpMapScreen(
+      tester,
+      Stream.value(fakePosition(37.5665, 126.9780)),
+    );
+    await tester.pump();
+    await tester.pump();
+    // FAB 등장 스케일 애니메이션이 끝나야 탭이 히트한다.
+    await tester.pump(const Duration(seconds: 1));
+
+    final map = tester.widget<FlutterMap>(find.byType(FlutterMap));
+    final before = map.mapController!.camera.zoom;
+    expect(before, 16); // AppConstants.initialZoom
+
+    await tester.tap(find.byKey(const ValueKey('zoom_in_button')));
+    await tester.pump();
+
+    expect(map.mapController!.camera.zoom, before + 1);
+  });
+
+  testWidgets('축소 버튼을 탭하면 줌이 1 감소한다', (tester) async {
+    await _pumpMapScreen(
+      tester,
+      Stream.value(fakePosition(37.5665, 126.9780)),
+    );
+    await tester.pump();
+    await tester.pump();
+    // FAB 등장 스케일 애니메이션이 끝나야 탭이 히트한다.
+    await tester.pump(const Duration(seconds: 1));
+
+    final map = tester.widget<FlutterMap>(find.byType(FlutterMap));
+    final before = map.mapController!.camera.zoom;
+    expect(before, 16); // AppConstants.initialZoom
+
+    await tester.tap(find.byKey(const ValueKey('zoom_out_button')));
+    await tester.pump();
+
+    expect(map.mapController!.camera.zoom, before - 1);
+  });
+
+  testWidgets('줌 버튼 사용 후에도 follow 모드가 유지되어 위치 갱신 시 카메라가 따라간다',
+      (tester) async {
+    final controller = StreamController<Position>();
+    addTearDown(controller.close);
+
+    await _pumpMapScreen(tester, controller.stream);
+    await tester.pump();
+
+    // 첫 위치 방출 → 지도 표시.
+    controller.add(fakePosition(37.5665, 126.9780));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(FlutterMap), findsOneWidget);
+    // FAB 등장 스케일 애니메이션이 끝나야 탭이 히트한다.
+    await tester.pump(const Duration(seconds: 1));
+
+    final map = tester.widget<FlutterMap>(find.byType(FlutterMap));
+    final initialZoom = map.mapController!.camera.zoom;
+
+    // 확대 버튼 탭 → 프로그래매틱 줌(follow 해제되지 않음).
+    await tester.tap(find.byKey(const ValueKey('zoom_in_button')));
+    await tester.pump();
+    expect(map.mapController!.camera.zoom, initialZoom + 1);
+
+    // 두 번째 위치 방출 → follow 모드라 카메라가 새 위치로 이동한다.
+    controller.add(fakePosition(37.5700, 126.9800));
+    await tester.pump();
+    await tester.pump();
+
+    final camera = map.mapController!.camera;
+    // 프로그래매틱 줌이 follow를 해제하지 않았으므로 카메라가 새 위치를 따라간다.
+    expect(camera.center.latitude, closeTo(37.5700, 1e-6));
+    expect(camera.center.longitude, closeTo(126.9800, 1e-6));
+    // follow 이동은 현재 줌을 유지하므로 확대된 줌이 보존된다.
+    expect(camera.zoom, initialZoom + 1);
   });
 }
