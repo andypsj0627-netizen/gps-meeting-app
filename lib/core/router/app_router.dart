@@ -5,7 +5,12 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/models/auth_user.dart';
 import '../../features/auth/providers/auth_providers.dart';
 import '../../features/auth/screens/login_screen.dart';
+import '../../features/chat/screens/chat_list_screen.dart';
+import '../../features/encounters/screens/encounters_screen.dart';
+import '../../features/home/screens/home_screen.dart';
 import '../../features/map/screens/map_screen.dart';
+import '../../features/profile/screens/my_page_screen.dart';
+import '../../features/shell/screens/main_shell.dart';
 import '../constants/app_constants.dart';
 import '../firebase/firebase_providers.dart';
 
@@ -14,6 +19,41 @@ import '../firebase/firebase_providers.dart';
 /// [AppConstants.requireLogin]을 감싸 라우터가 이 값을 watch하게 한다. 테스트에서
 /// 이 provider를 override해 우회 모드/인증 모드를 각각 검증하는 진입점이다.
 final requireLoginProvider = Provider<bool>((ref) => AppConstants.requireLogin);
+
+/// 지도 셸 라우트를 매 호출마다 새로 만든다.
+///
+/// 우회/인증 두 라우터가 GoRoute 인스턴스를 공유하면 dispose가 꼬이므로,
+/// 각 브랜치에서 이 함수를 호출해 서로 독립된 라우트 트리를 갖게 한다.
+/// indexedStack이라 탭 전환 시 지도 브랜치의 State가 보존된다(지도 미dispose — 의도).
+StatefulShellRoute _buildMapShellRoute() {
+  return StatefulShellRoute.indexedStack(
+    builder: (context, state, navigationShell) =>
+        MainShell(navigationShell: navigationShell),
+    branches: [
+      StatefulShellBranch(routes: [
+        GoRoute(path: '/home', builder: (context, state) => const HomeScreen()),
+      ]),
+      StatefulShellBranch(routes: [
+        GoRoute(path: '/', builder: (context, state) => const MapScreen()),
+      ]),
+      StatefulShellBranch(routes: [
+        GoRoute(
+          path: '/encounters',
+          builder: (context, state) => const EncountersScreen(),
+        ),
+      ]),
+      StatefulShellBranch(routes: [
+        GoRoute(
+          path: '/chats',
+          builder: (context, state) => const ChatListScreen(),
+        ),
+      ]),
+      StatefulShellBranch(routes: [
+        GoRoute(path: '/my', builder: (context, state) => const MyPageScreen()),
+      ]),
+    ],
+  );
+}
 
 /// 앱 라우터 provider.
 ///
@@ -42,10 +82,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           path: '/login',
           builder: (context, state) => const LoginScreen(),
         ),
-        GoRoute(
-          path: '/',
-          builder: (context, state) => const MapScreen(),
-        ),
+        _buildMapShellRoute(),
       ],
     );
     ref.onDispose(router.dispose);
@@ -97,10 +134,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/login',
         builder: (context, state) => const LoginScreen(),
       ),
-      GoRoute(
-        path: '/',
-        builder: (context, state) => const MapScreen(),
-      ),
+      _buildMapShellRoute(),
     ],
   );
 
