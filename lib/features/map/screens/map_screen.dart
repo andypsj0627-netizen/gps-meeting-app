@@ -364,6 +364,8 @@ class _MapView extends StatelessWidget {
           // null이면 flutter_map이 기본 네트워크 프로바이더를 사용한다.
           tileProvider: tileProvider,
         ),
+        // 영향 반경 원은 마커보다 먼저(밑에) 그려, 마커가 원 위에 얹히게 한다.
+        const _InfluenceCircleLayer(),
         const EncounterEffectsLayer(),
         const _NearbyUsersLayer(),
         const _MarkerLayer(),
@@ -399,6 +401,69 @@ class _MarkerLayer extends ConsumerWidget {
         ),
       ],
     );
+  }
+}
+
+/// 각 마커의 조우 영향 반경([AppConstants.encounterEnterRadius])을 원으로 그리는
+/// 소형 Consumer 레이어.
+///
+/// 내 위치와 근처 사용자 각각의 주위에 진입 반경 크기의 원을 깔아, 지금 누가
+/// 누구의 영향권에 들어와 있는지 눈으로 보이게 한다. 마커보다 아래에 배치되어
+/// 원 위에 마커가 얹힌다. 조우 판정 로직은 건드리지 않고, 판정에 쓰이는 반경을
+/// 그대로 시각화만 한다.
+///
+/// [_NearbyUsersLayer]와 동일하게, 해금 집합을 users보다 먼저 구독해 첫 프레임부터
+/// 리스너를 붙여 둔다(조우 이벤트 유실 방지). 해금된 사용자의 원은 진하게, 미해금은
+/// 아주 옅게 그려 영향권 진입 여부를 대비시킨다.
+class _InfluenceCircleLayer extends ConsumerWidget {
+  const _InfluenceCircleLayer();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // 해금 집합을 users보다 먼저 구독한다(이유는 _NearbyUsersLayer 주석 참고).
+    final unlocked = ref.watch(unlockedUsersProvider);
+    final users = ref.watch(
+      nearbyUsersProvider.select((state) => state.unwrapPrevious().value),
+    );
+    final myPosition =
+        ref.watch(positionStreamProvider.select((state) => state.value));
+
+    final scheme = Theme.of(context).colorScheme;
+    final circles = <CircleMarker>[
+      // 내 영향권. 내 위치가 있으면 primary 계열로 진하게 그린다.
+      if (myPosition != null)
+        CircleMarker(
+          point: myPosition.latLng,
+          radius: AppConstants.encounterEnterRadius,
+          useRadiusInMeter: true,
+          color: scheme.primary.withValues(alpha: 0.12),
+          borderColor: scheme.primary.withValues(alpha: 0.7),
+          borderStrokeWidth: 1.5,
+        ),
+      // 근처 사용자 각각의 영향권. 해금은 primary로 진하게, 미해금은 outline으로 옅게.
+      if (users != null)
+        for (final user in users)
+          if (unlocked.contains(user.id))
+            CircleMarker(
+              point: user.position,
+              radius: AppConstants.encounterEnterRadius,
+              useRadiusInMeter: true,
+              color: scheme.primary.withValues(alpha: 0.15),
+              borderColor: scheme.primary.withValues(alpha: 0.7),
+              borderStrokeWidth: 1.5,
+            )
+          else
+            CircleMarker(
+              point: user.position,
+              radius: AppConstants.encounterEnterRadius,
+              useRadiusInMeter: true,
+              color: scheme.outline.withValues(alpha: 0.08),
+              borderColor: scheme.outline.withValues(alpha: 0.4),
+              borderStrokeWidth: 1.5,
+            ),
+    ];
+
+    return CircleLayer(circles: circles);
   }
 }
 

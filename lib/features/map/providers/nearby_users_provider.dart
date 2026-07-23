@@ -40,7 +40,8 @@ enum _WalkerPhase {
   /// 계산된 폴리라인을 따라 걷는 중.
   walking,
 
-  /// 대기 중 — 도착 후 휴식(1~3s)이거나 경로 실패 백오프(10~20s). 대기가 끝나면
+  /// 대기 중 — 도착 후 휴식(1~3s), 보행 중 쉼(3~8s), 또는 경로 실패 백오프
+  /// (10~20s). 대기가 끝나면 걷던 경로가 남아 있으면 이어서 재개하고, 없으면
   /// 새 목적지를 뽑는다.
   waiting,
 }
@@ -72,6 +73,7 @@ class FakeNearbyUsersService implements NearbyUsersService {
     this.minSpeed = 1.1,
     this.maxSpeed = 1.5,
     this.initialRequestJitter = const Duration(seconds: 3),
+    this.pauseProbability = _pauseProbabilityPerTick,
   })  : _random = random ?? Random(),
         _routePlanner = routePlanner ?? OsrmRoutePlanner();
 
@@ -93,6 +95,10 @@ class FakeNearbyUsersService implements NearbyUsersService {
 
   /// 보행 속도 상한(m/s).
   final double maxSpeed;
+
+  /// 보행 중 한 틱에 "쉼"에 들어갈 확률. 기본은 [_pauseProbabilityPerTick]이며,
+  /// 테스트가 0을 주입하면 쉼 없이 연속 보행해 이동 불변식을 결정적으로 검증한다.
+  final double pauseProbability;
 
   /// 거리/방위 계산기. latlong2의 구면 계산을 사용한다.
   ///
@@ -124,6 +130,16 @@ class FakeNearbyUsersService implements NearbyUsersService {
 
   /// 목적지 도착 후 휴식 시간(ms) 상한.
   static const int _arriveWaitMaxMs = 3000;
+
+  /// 보행 중 사람처럼 잠시 멈춰 쉴 확률(틱당). 실제 사람이 걷다 멈추는 모습을
+  /// 흉내 내고, 멈춘 동안 조우 체류시간이 쌓일 수 있게 한다.
+  static const double _pauseProbabilityPerTick = 0.02;
+
+  /// 보행 중 쉼(멈춤) 시간(ms) 하한.
+  static const int _pauseMinMs = 3000;
+
+  /// 보행 중 쉼 시간(ms) 상한.
+  static const int _pauseMaxMs = 8000;
 
   /// 경로 실패(폴백) 시 백오프 대기(ms) 하한. 장애 중인 공개 서버 연타 방지.
   static const int _routeFailBackoffMinMs = 10000;
@@ -234,10 +250,26 @@ class FakeNearbyUsersService implements NearbyUsersService {
           case _WalkerPhase.requestingRoute:
             break; // 경로 응답 대기 — 제자리.
           case _WalkerPhase.walking:
-            advance(w);
+            // 낮은 확률로 사람처럼 잠시 멈춰 쉰다(3~8s). route/segmentIndex는
+            // 보존되므로, 쉼이 끝나면 같은 경로를 이어서 재개한다. pauseProbability가
+            // 0이면(테스트) RNG를 소비하지 않고 항상 전진해 이동을 결정적으로 만든다.
+            if (pauseProbability > 0 &&
+                _random.nextDouble() < pauseProbability) {
+              startWaiting(w, _pauseMinMs, _pauseMaxMs);
+            } else {
+              advance(w);
+            }
           case _WalkerPhase.waiting:
             w.waitRemaining -= tickInterval;
-            if (w.waitRemaining <= Duration.zero) requestRoute(w);
+            if (w.waitRemaining <= Duration.zero) {
+              // 걷던 경로가 남아 있으면(보행 중 쉼) 이어서 재개하고, 없으면
+              // (도착/폴백/시작 지터) 새 목적지를 뽑는다.
+              if (w.route != null && w.segmentIndex < w.route!.length - 1) {
+                w.phase = _WalkerPhase.walking;
+              } else {
+                requestRoute(w);
+              }
+            }
         }
       }
       emitIfChanged();

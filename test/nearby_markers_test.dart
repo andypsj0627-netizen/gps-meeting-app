@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
+import 'package:gps_meeting_app/features/map/providers/encounter_provider.dart';
+import 'package:gps_meeting_app/features/map/services/encounter_detector.dart';
 
 import 'helpers/location_test_helpers.dart';
 
@@ -17,6 +19,18 @@ Future<StreamController<List<NearbyUser>>> _pump(WidgetTester tester) async {
       Stream.value(fakePosition(testCenter.latitude, testCenter.longitude)),
     ),
     nearbyStream: nearby.stream,
+    // dwell을 없애 벽시계를 전진시키지 않고도 조우를 확정한다. 단 dwell=0이어도
+    // 진입 방출은 pending만 등록되고 다음 방출에서 확정되므로, 해금을 관측하는
+    // 테스트는 같은 사용자를 두 번 방출해야 한다.
+    extraOverrides: [
+      encounterDetectorProvider.overrideWith(
+        (ref) => EncounterDetector(
+          enterRadius: 60,
+          exitRadius: 100,
+          dwell: Duration.zero,
+        ),
+      ),
+    ],
   );
   // 위치 수신 → 지도 표시 → nearbyUsersProvider가 근처 스트림을 구독한다.
   await tester.pump();
@@ -57,6 +71,11 @@ void main() {
       gender: 'f',
       position: testDistance.offset(testCenter, 55, 90),
     );
+    // 첫 방출은 pending 등록만 된다.
+    nearby.add([user]);
+    await tester.pump();
+    await tester.pump();
+    // 같은 사용자를 한 번 더 방출 → 다음 방출에서 dwell 충족되어 조우 확정+해금.
     nearby.add([user]);
     await tester.pump();
     await tester.pump();
@@ -84,11 +103,21 @@ void main() {
       gender: 'f',
       position: testDistance.offset(testCenter, 55, 90),
     );
+    // 첫 방출은 pending 등록만 되므로, 같은 위치를 두 번 방출해 해금을 확정시킨다.
     nearby.add([entering]);
     await tester.pump();
     await tester.pump();
+    nearby.add([entering]);
+    await tester.pump();
+    await tester.pump();
+    // 해금이 확정되어 마커가 트리에 존재한다.
+    expect(
+      find.byKey(const ValueKey('nearby_user_marker_userE')),
+      findsOneWidget,
+    );
 
     // 이탈 반경(100m) 밖(200m)으로 같은 id를 이동 → 조우 활성 해제 → 재잠금.
+    // 재잠금은 dwell과 무관하므로 한 번 방출로 active에서 즉시 빠진다.
     final leaving = NearbyUser(
       id: 'userE',
       name: '이서연',

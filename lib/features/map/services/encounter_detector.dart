@@ -17,13 +17,17 @@ import '../models/nearby_user.dart';
 /// 반복되며 알림이 연쇄로 터지지 않는다. 한 번 조우한 쌍은 [exitRadius] 밖으로
 /// 충분히 멀어져 상태가 해제된 뒤 다시 [enterRadius] 안으로 들어와야 재발생한다.
 ///
-/// 최초 [update] 호출은 "기준선"이다. 스폰/지도 진입 시점에 이미 [enterRadius]
-/// 안에 있던 쌍은 활성 집합에 등록만 하고 이벤트는 내지 않는다. 두 번째 호출부터는
-/// 새로 진입한 쌍이 이벤트로 이어진다.
+/// 진입 반경 안으로 들어온 뒤 해제 반경 안에서 [dwell] 이상 연속으로 함께
+/// 머물러야 조우로 확정한다. [dwell]을 채우기 전에 해제 반경 밖으로 벌어지면
+/// 폐기되고, 다시 들어오면 처음부터 누적한다. 스폰 시점에 이미 옆에 있던 쌍도
+/// [dwell]을 채우면 조우로 확정된다(별도 기준선 억제 없음 — [dwell] 자체가
+/// 스폰 순간의 알림 폭탄을 막는다).
+// ponytail: dwell 승급은 update() 호출(스트림 이벤트)로만 구동 — 실제 두 사람이 모두 정지해 스트림이 조용해지면 승급 못 함. 실제 presence 백엔드 도입 시 주기 티커로 재평가하도록 업그레이드
 class EncounterDetector {
   EncounterDetector({
     this.enterRadius = AppConstants.encounterEnterRadius,
     this.exitRadius = AppConstants.encounterExitRadius,
+    this.dwell = AppConstants.encounterDwell,
     DateTime Function()? now,
   })  : _now = now ?? DateTime.now,
         assert(
@@ -42,6 +46,10 @@ class EncounterDetector {
   /// 조우 상태인 쌍이 이 거리(m) 이상 벌어져야 상태를 해제한다.
   final double exitRadius;
 
+  /// 조우 확정에 필요한 최소 연속 체류 시간. 진입 반경 안으로 들어온 뒤 해제 반경
+  /// 안에서 이 시간 이상 함께 머물러야 확정된다.
+  final Duration dwell;
+
   /// 이벤트 타임스탬프 생성기. 테스트에서 결정적 시각을 주입하기 위해 분리했다.
   final DateTime Function() _now;
 
@@ -55,12 +63,12 @@ class EncounterDetector {
   /// 밖으로 벌어지기 전까지 이벤트를 재발생시키지 않는다.
   final Set<String> _active = <String>{};
 
-  /// 최초 [update] 호출(기준선)을 이미 소진했는지 여부.
+  /// 진입 반경 안으로 들어왔지만 아직 [dwell]을 못 채운 쌍의 진입 시각.
   ///
-  /// 첫 호출은 활성 집합만 시드하고 이벤트는 내지 않는다. 지도 진입 직후 스폰
-  /// 시점에 이미 가까웠던 쌍들이 스낵바/펄스를 쏟아내지 않게 하려는 것이다.
-  /// 두 번째 호출부터 true가 되어 새 진입이 이벤트로 이어진다.
-  bool _baselineDone = false;
+  /// 키는 [_pairKey]로 정규화한 문자열, 값은 진입을 관찰한 시각이다. 이후
+  /// [update]에서 [dwell]이 경과하면 [_active]로 승급하고, 그전에 해제 반경
+  /// 밖으로 벌어지거나 목록에서 사라지면 이 맵에서 제거되어 누적이 리셋된다.
+  final Map<String, DateTime> _pending = <String, DateTime>{};
 
   /// 두 id를 정렬해 무순서 쌍의 정규화 키를 만든다. (a,b)와 (b,a)가 같은 키다.
   static String _pairKey(String x, String y) =>
@@ -70,12 +78,11 @@ class EncounterDetector {
   /// 발생한 조우 이벤트 목록을 반환한다.
   ///
   /// 판정 규칙 (나를 포함한 모든 무순서 쌍에 대해):
-  /// - 조우 중이 아닌 쌍이 [enterRadius] 이내 → 이벤트 생성 + 집합에 추가
-  /// - 조우 중인 쌍이 [exitRadius] 이상 → 집합에서 제거(이벤트 없음)
-  /// - 어느 한쪽이라도 이번 목록에 없는 쌍 → 집합에서 제거(사라진 쌍 상태 초기화)
-  ///
-  /// 단, 최초 호출은 기준선이라 [enterRadius] 이내 쌍을 활성 집합에 등록만 하고
-  /// 이벤트는 반환하지 않는다. 두 번째 호출부터 진입이 이벤트로 이어진다.
+  /// - 확정된 쌍([_active])이 [exitRadius] 이상 → 상태 해제(이벤트 없음, 재잠금)
+  /// - pending 중인 쌍이 [exitRadius] 이상 → pending 폐기(이벤트 없음)
+  /// - pending 중인 쌍이 [dwell] 이상 경과 → 확정(이벤트 생성 + [_active] 등록)
+  /// - pending도 확정도 아닌 쌍이 [enterRadius] 이내 → pending 등록(이벤트 없음)
+  /// - 이번 목록에 없는 쌍 → [_pending]/[_active] 양쪽에서 제거
   List<EncounterEvent> update(LatLng myPosition, List<NearbyUser> users) {
     // 나도 하나의 참가자로 만들어 쌍 판정에 포함시킨다.
     final participants = <NearbyUser>[
@@ -84,6 +91,8 @@ class EncounterDetector {
     ];
     final events = <EncounterEvent>[];
     final presentKeys = <String>{};
+    // 호출당 한 번만 시각을 캡처해 진입 기록·이벤트 타임스탬프·경과 비교에 동일하게 쓴다.
+    final now = _now();
 
     for (var i = 0; i < participants.length; i++) {
       for (var j = i + 1; j < participants.length; j++) {
@@ -94,38 +103,41 @@ class EncounterDetector {
         final distance = _distance.distance(a.position, b.position);
 
         if (_active.contains(key)) {
-          // 이미 조우 중인 쌍 — 해제 반경 밖으로 벌어지면 상태를 푼다(이벤트 없음).
+          // 이미 확정된 쌍 — 해제 반경 밖으로 벌어지면 상태를 푼다(재잠금, 이벤트 없음).
           if (distance >= exitRadius) {
             _active.remove(key);
           }
-        } else {
-          // 조우 중이 아닌 쌍 — 진입 반경 안으로 들어오면 활성 집합에 등록한다.
-          if (distance <= enterRadius) {
+        } else if (_pending.containsKey(key)) {
+          if (distance >= exitRadius) {
+            // dwell을 채우기 전에 해제 반경 밖으로 이탈 → pending 폐기(누적 리셋).
+            _pending.remove(key);
+          } else if (now.difference(_pending[key]!) >= dwell) {
+            // 해제 반경 안에서 dwell 이상 연속 체류 → 조우 확정(이벤트 생성).
+            _pending.remove(key);
             _active.add(key);
-            // 최초 update(스폰 기준선)에서는 활성 등록만 하고 이벤트는 내지 않는다.
-            // 지도 진입 직후 이미 가까웠던 쌍이 스낵바/펄스를 쏟아내지 않게 한다.
-            // 색 해금(activeUserIds)은 활성 집합에서 파생하므로 그대로 동작한다.
-            if (_baselineDone) {
-              events.add(
-                EncounterEvent(
-                  a: a,
-                  b: b,
-                  distanceMeters: distance,
-                  timestamp: _now(),
-                ),
-              );
-            }
+            events.add(
+              EncounterEvent(
+                a: a,
+                b: b,
+                distanceMeters: distance,
+                timestamp: now,
+              ),
+            );
+          }
+          // else: dwell 미달 — pending을 유지하며 계속 누적한다.
+        } else {
+          // pending도 확정도 아닌 쌍 — 진입 반경 안으로 들어오면 pending에 등록한다(이벤트 없음).
+          if (distance <= enterRadius) {
+            _pending[key] = now;
           }
         }
       }
     }
 
-    // 어느 한쪽이라도 이번 목록에서 사라진 쌍은 상태를 초기화한다. 다시 나타나
-    // 진입 반경 안으로 들어오면 새 이벤트로 취급된다.
+    // 이번 목록에서 사라진 쌍은 pending·active 양쪽에서 제거한다. 다시 나타나면
+    // pending은 처음부터 누적을, active는 다시 dwell을 요구한다.
+    _pending.removeWhere((key, _) => !presentKeys.contains(key));
     _active.removeWhere((key) => !presentKeys.contains(key));
-
-    // 첫 호출을 기준선으로 소진한다. 이후 호출부터는 진입이 이벤트로 이어진다.
-    _baselineDone = true;
 
     return events;
   }

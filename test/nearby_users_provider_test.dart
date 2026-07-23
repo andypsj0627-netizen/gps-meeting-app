@@ -117,6 +117,8 @@ void main() {
           routePlanner: _FakeRoutePlanner(),
           minSpeed: speed,
           maxSpeed: speed,
+          // 쉼을 꺼(연속 보행) 매 틱 정확히 0.36m 이동을 결정적으로 검증한다.
+          pauseProbability: 0,
           initialRequestJitter: Duration.zero,
         );
 
@@ -138,6 +140,76 @@ void main() {
       });
     });
 
+    test('보행 중 사람처럼 잠시 멈춰 쉬었다가 같은 경로를 이어서 재개한다', () {
+      fakeAsync((async) {
+        const speed = 1.2; // 틱당 0.36m.
+        // 아주 긴(100km) 직선 경로 → 관측 창 안에 도착이 없다. 따라서 무이동
+        // 틱의 원인은 "보행 중 쉼"뿐이며, 도착 대기와 혼동되지 않는다.
+        final planner = _FakeRoutePlanner(
+          (from, to) => [from, distance.offset(from, 100000, 0)],
+        );
+        final service = FakeNearbyUsersService(
+          random: Random(2),
+          tickInterval: _tick,
+          routePlanner: planner,
+          minSpeed: speed,
+          maxSpeed: speed,
+          initialRequestJitter: Duration.zero,
+        );
+
+        final emissions = <List<NearbyUser>>[];
+        final sub =
+            service.watchNearbyUsers(center, _roster).listen(emissions.add);
+        async.flushMicrotasks();
+        expect(planner.callCount, _roster.length); // 첫 라운드 전원 1회 요청.
+
+        // 60틱 동안 walker별 위치 궤적을 기록한다. p=0.02 × 5명 × 60틱이면
+        // 무리 전체에서 쉼이 여러 번 일어나므로 특정 시드에 취약하지 않다.
+        final tracks = <int, List<LatLng>>{
+          for (var k = 0; k < _roster.length; k++) k: <LatLng>[],
+        };
+        for (var i = 0; i < 60; i++) {
+          async.elapse(_tick);
+          final snap = emissions.last;
+          for (var k = 0; k < snap.length; k++) {
+            tracks[k]!.add(snap[k].position);
+          }
+        }
+        sub.cancel();
+        async.flushMicrotasks();
+
+        // 어떤 walker든 "무이동 틱(쉼) 뒤에 다시 이동(재개)"이 관찰되어야 한다.
+        var sawPauseThenResume = false;
+        for (final track in tracks.values) {
+          int? pauseTick;
+          for (var i = 1; i < track.length; i++) {
+            if (distance.distance(track[i - 1], track[i]) < 1e-9) {
+              pauseTick = i;
+              break;
+            }
+          }
+          if (pauseTick == null) continue;
+          final resumed = [
+            for (var i = pauseTick + 1; i < track.length; i++)
+              distance.distance(track[i - 1], track[i]),
+          ].any((moved) => moved > 1e-6);
+          if (resumed) {
+            sawPauseThenResume = true;
+            break;
+          }
+        }
+        expect(
+          sawPauseThenResume,
+          isTrue,
+          reason: '보행 중 쉼→재개가 최소 한 walker에서 관찰되어야 한다',
+        );
+
+        // 재개는 "같은 경로 이어걷기"이지 새 목적지 요청이 아니다. 100km 경로라
+        // 도착도 없으므로, 경로 요청 수는 첫 라운드 그대로여야 한다.
+        expect(planner.callCount, _roster.length);
+      });
+    });
+
     test('폴리라인 세그먼트 경계를 넘어가면 다음 세그먼트로 이월하여 보간한다', () {
       fakeAsync((async) {
         const speed = 1.2; // 틱당 0.36m.
@@ -152,6 +224,8 @@ void main() {
           }),
           minSpeed: speed,
           maxSpeed: speed,
+          // 쉼을 꺼 1틱 보간을 결정적으로 검증한다.
+          pauseProbability: 0,
           initialRequestJitter: Duration.zero,
         );
 
@@ -187,6 +261,8 @@ void main() {
           routePlanner: planner,
           minSpeed: speed,
           maxSpeed: speed,
+          // 쉼을 꺼 1틱 스냅점 경유 보간을 결정적으로 검증한다.
+          pauseProbability: 0,
           initialRequestJitter: Duration.zero,
         );
 
@@ -219,6 +295,8 @@ void main() {
           routePlanner: planner,
           minSpeed: speed,
           maxSpeed: speed,
+          // 쉼을 꺼 도착→새 목적지 요청 타이밍을 결정적으로 검증한다.
+          pauseProbability: 0,
           initialRequestJitter: Duration.zero,
         );
 

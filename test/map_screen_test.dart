@@ -5,10 +5,21 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:gps_meeting_app/features/map/models/nearby_user.dart';
+import 'package:gps_meeting_app/features/map/providers/encounter_provider.dart';
 import 'package:gps_meeting_app/features/map/providers/location_provider.dart';
+import 'package:gps_meeting_app/features/map/services/encounter_detector.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'helpers/location_test_helpers.dart';
+
+/// 조우 관측 테스트용 detector override: dwell을 없애 벽시계를 전진시키지 않고도
+/// 조우를 확정할 수 있게 한다. dwell=0이어도 진입 방출은 pending만 등록되고,
+/// 다음 방출에서 확정된다(2스텝).
+final _zeroDwell = [
+  encounterDetectorProvider.overrideWith(
+    (ref) => EncounterDetector(enterRadius: 60, exitRadius: 100, dwell: Duration.zero),
+  ),
+];
 
 /// 주어진 스트림으로 MapScreen 을 감싼 테스트 앱을 펌프한다.
 Future<void> _pumpMapScreen(
@@ -219,11 +230,12 @@ void main() {
       tester,
       FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
       nearbyStream: nearby.stream,
+      extraOverrides: _zeroDwell,
     );
     await tester.pump();
     await tester.pump();
 
-    // 처음엔 멀리(100m) 있어 조우가 아니다 → 스낵바 없음.
+    // 처음엔 멀리(100m) 있어 진입 반경 밖이다 → pending도 없어 스낵바 없음.
     nearby.add([userAt('A', 100)]);
     await tester.pump();
     await tester.pump();
@@ -232,7 +244,12 @@ void main() {
       findsNothing,
     );
 
-    // 조우 진입 반경 이내(10m)로 이동 → 스낵바 표시.
+    // 진입 반경 이내(10m)로 이동 → 이 방출은 pending 등록만 되고 아직 확정 아님.
+    nearby.add([userAt('A', 10)]);
+    await tester.pump();
+    await tester.pump();
+
+    // 같은 위치를 한 번 더 방출 → 다음 방출에서 dwell 충족되어 조우 확정 → 스낵바.
     nearby.add([userAt('A', 10)]);
     await tester.pump();
     await tester.pump();
@@ -254,18 +271,19 @@ void main() {
       tester,
       FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
       nearbyStream: nearby.stream,
+      extraOverrides: _zeroDwell,
     );
     await tester.pump();
     await tester.pump();
 
-    // 기준선 소진: 최초 update는 이벤트를 내지 않는 기준선이므로, 서로도 나와도
-    // 진입 반경(60m) 밖인 배치(A↔B 400m)를 먼저 흘린다.
-    nearby.add([userAt('A', 200), userAt('B', 600)]);
+    // 같은 방출에 A(10m)·B(12m)를 배치한다. userAt은 정북 일렬 배치라 A↔B도
+    // 서로 2m 거리로 진입하므로, 나↔A·나↔B·A↔B 총 3쌍이 진입한다.
+    // 첫 방출은 pending 등록만 되고 아직 확정 아니다.
+    nearby.add([userAt('A', 10), userAt('B', 12)]);
     await tester.pump();
     await tester.pump();
 
-    // 같은 방출에 A(10m)·B(12m)를 배치한다. userAt은 정북 일렬 배치라 A↔B도
-    // 서로 2m 거리로 진입하므로, 나↔A·나↔B·A↔B 총 3건이 한 배치로 온다.
+    // 같은 배치를 한 번 더 방출 → 다음 방출에서 dwell 충족되어 3쌍이 확정된다.
     nearby.add([userAt('A', 10), userAt('B', 12)]);
     await tester.pump();
     await tester.pump();
@@ -290,18 +308,18 @@ void main() {
       tester,
       FakeLocationService(Stream.value(fakePosition(37.5665, 126.9780))),
       nearbyStream: nearby.stream,
+      extraOverrides: _zeroDwell,
     );
     await tester.pump();
     await tester.pump();
 
-    // 기준선 소진: A↔B도 진입 반경(60m) 밖(400m)인 배치를 먼저 흘려 기준선을
-    // 소비한다. 실제 A↔B 진입은 다음 방출에서 관측한다.
-    nearby.add([userAt('A', 200), userAt('B', 600)]);
+    // A(200m)·B(210m)는 나와는 진입 반경 밖이지만 서로는 10m 거리다(정북 일렬
+    // 배치). 성립하는 쌍은 A↔B 하나뿐이다. 첫 방출은 pending 등록만 된다.
+    nearby.add([userAt('A', 200), userAt('B', 210)]);
     await tester.pump();
     await tester.pump();
 
-    // A(200m)·B(210m)는 나와는 진입 반경 밖이지만 서로는 10m 거리다(정북 일렬
-    // 배치). 성립하는 쌍은 A↔B 하나뿐이다.
+    // 같은 배치를 한 번 더 방출 → 다음 방출에서 dwell 충족되어 A↔B가 확정된다.
     nearby.add([userAt('A', 200), userAt('B', 210)]);
     await tester.pump();
     await tester.pump();
@@ -355,6 +373,7 @@ void main() {
       tester,
       FakeLocationService(controller.stream),
       nearbyStream: nearby.stream,
+      extraOverrides: _zeroDwell,
     );
     await tester.pump();
 
@@ -375,12 +394,12 @@ void main() {
     await tester.pump();
     expect(find.byType(FlutterMap), findsOneWidget);
 
-    // 기준선 소진: 진입 반경(60m) 밖 배치를 먼저 흘린다. 실제 진입은 다음 방출에서.
-    nearby.add([userAt('A', 200)]);
+    // 지도 복귀 후 사용자가 진입 반경 이내(10m)로 들어온다. 첫 방출은 pending만.
+    nearby.add([userAt('A', 10)]);
     await tester.pump();
     await tester.pump();
 
-    // 지도 복귀 후 사용자가 진입 반경 이내(10m)로 들어오면 조우 스낵바가 발생한다.
+    // 같은 위치를 한 번 더 방출 → 다음 방출에서 dwell 충족되어 조우 확정 → 스낵바.
     nearby.add([userAt('A', 10)]);
     await tester.pump();
     await tester.pump();

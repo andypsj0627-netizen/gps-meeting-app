@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+// Override 타입은 flutter_riverpod 기본 배럴에 없고 misc.dart가 공개 export한다.
+// pumpMapScreenWithService의 extraOverrides 파라미터 타입용.
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:gps_meeting_app/core/router/app_router.dart';
@@ -56,12 +59,16 @@ Position fakePosition(double lat, double lng) => Position(
 /// 지정하지 않으면, 실제 주기 타이머(pending timer)를 만들지 않도록 아무것도
 /// 방출하지 않는 스트림으로 override한다.
 ///
+/// [extraOverrides]를 주면 고정 override 뒤에 이어 붙인다. 조우 판정 detector의
+/// dwell을 줄이는 등, 특정 테스트만 필요한 override를 끼워 넣는 데 쓴다.
+///
 /// 프로필은 실제 Firebase에 닿지 않도록 [defaultNearbyUsers]로 override한다
 /// (근처 사용자 시뮬레이션은 프로필 로드가 완료되어야 시작되기 때문).
 Future<void> pumpMapScreenWithService(
   WidgetTester tester,
   FakeLocationService service, {
   Stream<List<NearbyUser>>? nearbyStream,
+  List<Override> extraOverrides = const [],
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -73,6 +80,7 @@ Future<void> pumpMapScreenWithService(
           ),
         ),
         userProfilesProvider.overrideWith((ref) async => defaultNearbyUsers),
+        ...extraOverrides,
       ],
       child: MaterialApp(
         home: MapScreen(tileProvider: FakeTileProvider()),

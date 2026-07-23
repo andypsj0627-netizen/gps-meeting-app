@@ -42,6 +42,17 @@ void main() {
         nearbyUsersServiceProvider.overrideWithValue(
           ControlledNearbyUsersService(nearbyStream),
         ),
+        // dwell을 0으로 줄여, 벽시계 10초를 전진시키지 않고도 조우 확정을
+        // 결정적으로 재현한다. dwell=0이면 진입한 그 방출에서 pending 등록만
+        // 되고, 확정은 다음 방출에서 일어난다(2스텝). 반경은 provider 기본값과
+        // 동일하게 명시한다(enter=60/exit=100).
+        encounterDetectorProvider.overrideWith(
+          (ref) => EncounterDetector(
+            enterRadius: 60,
+            exitRadius: 100,
+            dwell: Duration.zero,
+          ),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -80,7 +91,13 @@ void main() {
     await settle();
     expect(ctx.events, isEmpty);
 
-    // 진입 반경 이내(10m)로 이동 → 조우 이벤트 방출.
+    // 진입 반경 이내(10m)로 이동 → pending 등록만 된다(dwell=0에서도 확정은
+    // 다음 방출에서).
+    nearby.add([userAt('A', 10)]);
+    await settle();
+    expect(ctx.events, isEmpty);
+
+    // 같은 위치를 한 번 더 방출하면 pending이 dwell(0)을 충족해 확정된다.
     nearby.add([userAt('A', 10)]);
     await settle();
 
@@ -103,14 +120,15 @@ void main() {
     positions.add(fakePosition(center.latitude, center.longitude));
     await settle();
 
-    // 기준선 소진: 첫 update는 이벤트를 내지 않는 기준선이므로, 서로도 나와도
-    // 진입 반경 밖인 배치를 먼저 흘려 기준선을 소비한다.
-    nearby.add([userAt('A', 100), userAt('B', 500)]);
+    // A(10m)·B(12m)를 배치한다. userAt은 정북 일렬 배치라 A↔B도 서로 2m 거리로
+    // 진입하므로 3쌍이 성립하지만, dwell=0에서도 이 첫 방출은 세 쌍을 pending에
+    // 등록만 한다. 확정은 다음 방출에서 일어난다.
+    nearby.add([userAt('A', 10), userAt('B', 12)]);
     await settle();
     expect(ctx.batches, isEmpty);
 
-    // 같은 방출에 A(10m)·B(12m)를 배치한다. userAt은 정북 일렬 배치라 A↔B도
-    // 서로 2m 거리로 진입하므로, 나↔A·나↔B에 타인끼리 쌍까지 총 3건이 성립한다.
+    // 같은 배치를 한 번 더 방출하면 세 pending이 dwell(0)을 충족해 한 배치로
+    // 확정된다.
     nearby.add([userAt('A', 10), userAt('B', 12)]);
     await settle();
 
@@ -164,8 +182,13 @@ void main() {
     positions.add(fakePosition(center.latitude, center.longitude));
     await settle();
 
-    // provider 내부 detector는 AppConstants 기본 반경(enter=60/exit=100)을 쓴다.
-    // 진입: 10m는 enter(60) 미만 → 해금된다.
+    // detector는 override로 enter=60/exit=100/dwell=0을 쓴다.
+    // 진입: 10m는 enter(60) 미만 → pending 등록만 된다(아직 해금 아님).
+    nearby.add([userAt('A', 10)]);
+    await settle();
+    expect(ctx.container.read(unlockedUsersProvider), isNot(contains('A')));
+
+    // 같은 위치를 한 번 더 방출하면 dwell(0)을 충족해 active가 되어 해금된다.
     nearby.add([userAt('A', 10)]);
     await settle();
     expect(ctx.container.read(unlockedUsersProvider), contains('A'));

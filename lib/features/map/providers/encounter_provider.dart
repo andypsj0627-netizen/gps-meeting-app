@@ -9,6 +9,16 @@ import '../utils/position_latlng.dart';
 import 'location_provider.dart';
 import 'nearby_users_provider.dart';
 
+/// 조우 판정에 쓰는 [EncounterDetector] 인스턴스를 제공하는 seam.
+///
+/// 프로덕션은 [AppConstants] 기본 반경/체류시간(dwell 10초)을 쓰는 기본
+/// 인스턴스를 반환한다. 통합 테스트는 이 provider를 override해 dwell을
+/// [Duration.zero]로 줄이거나 [EncounterDetector.new]의 now를 주입해,
+/// 벽시계 시간을 전진시키지 않고도 조우 확정을 결정적으로 재현한다.
+final encounterDetectorProvider = Provider.autoDispose<EncounterDetector>(
+  (ref) => EncounterDetector(),
+);
+
 /// 이 파일은 조우 반응(스낵바/펄스 알림과 마커 해금)의 단일 팬아웃 지점이다.
 ///
 /// detector를 소유하고 재계산을 돌리는 곳은 [encounterUpdatesProvider] 하나뿐이며,
@@ -43,7 +53,7 @@ typedef EncounterUpdate = ({List<EncounterEvent> events, Set<String> activeUserI
 /// 위치/서비스 provider와 동일하게 Riverpod의 자동 재시도를 끈다.
 final encounterUpdatesProvider = StreamProvider.autoDispose<EncounterUpdate>(
   (ref) {
-    final detector = EncounterDetector();
+    final detector = ref.watch(encounterDetectorProvider);
     final controller = StreamController<EncounterUpdate>();
 
     // 직전에 방출한 조우 활성 사용자 집합(불변 복사본). 이벤트가 없어도 이 집합이
